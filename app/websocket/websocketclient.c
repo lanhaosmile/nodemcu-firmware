@@ -26,7 +26,6 @@
 #include "user_interface.h"
 #include "espconn.h"
 #include "mem.h"
-#include "limits.h"
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>
@@ -824,9 +823,9 @@ void ws_connect(ws_info *ws, const char *url) {
 
   // Attempt to resolve hostname address
   ip_addr_t  addr;
-  err_t result = espconn_gethostbyname(conn, hostname, &addr, dns_callback);
+  err_t result = dns_gethostbyname(hostname, &addr, dns_callback, conn);
 
-  if (result == ESPCONN_INPROGRESS) {
+  if (result == ERR_INPROGRESS) {
     NODE_DBG("DNS pending\n");
   } else {
     dns_callback(hostname, &addr, conn);

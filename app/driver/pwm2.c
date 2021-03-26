@@ -1,5 +1,5 @@
 /*
- * Software PWM using soft-interrupt timer1. 
+ * Software PWM using soft-interrupt timer1.
  * Supports higher frequencies compared to Espressif provided one.
  *
  * Nikolay Fiykov
@@ -7,11 +7,13 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 #include "mem.h"
 #include "pin_map.h"
 #include "platform.h"
 #include "hw_timer.h"
 #include "driver/pwm2.h"
+#include "user_interface.h"
 
 #define PWM2_TMR_MAGIC_80MHZ 16
 #define PWM2_TMR_MAGIC_160MHZ 32
@@ -202,7 +204,7 @@ void pwm2_setup_pin(
     const uint32_t freqDivisor,
     const uint32_t resolution,
     const uint32_t initDuty
-    ) 
+    )
 {
   moduleData->setupData.pin[pin].pulseResolutions = resolution;
   moduleData->setupData.pin[pin].divisableFrequency = divisableFreq;

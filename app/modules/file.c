@@ -4,6 +4,7 @@
 #include "lauxlib.h"
 #include "lmem.h"
 #include "platform.h"
+#include "spiffs/nodemcu_spiffs.h"
 
 #include <stdint.h>
 #include "vfs.h"
@@ -28,6 +29,17 @@ static int rtc_cb_ref = LUA_NOREF;
 typedef struct _file_fd_ud {
   int fd;
 } file_fd_ud;
+
+static void do_flash_mount() {
+    if (!vfs_mount("/FLASH", 0)) {
+        // Failed to mount -- try reformat
+        dbg_printf("Formatting file system. Please wait...\n");
+        if (!vfs_format()) {
+            NODE_ERR( "\n*** ERROR ***: unable to format. FS might be compromised.\n" );
+            NODE_ERR( "It is advised to re-flash the NodeMCU image.\n" );
+        }
+    }
+}
 
 static void table2tm( lua_State *L, vfs_time *tm )
 {
@@ -60,7 +72,8 @@ static sint32_t file_rtc_cb( vfs_time *tm )
     lua_State *L = lua_getstate();
 
     lua_rawgeti( L, LUA_REGISTRYINDEX, rtc_cb_ref );
-    lua_call( L, 0, 1 );
+    if (luaL_pcallx( L, 0, 1 ) != LUA_OK)
+      return res;
 
     if (lua_type( L, lua_gettop( L ) ) == LUA_TTABLE) {
       table2tm( L, tm );
@@ -88,15 +101,20 @@ static int file_on(lua_State *L)
   case ON_RTC:
     luaL_unref(L, LUA_REGISTRYINDEX, rtc_cb_ref);
 
-    if ((lua_type(L, 2) == LUA_TFUNCTION) ||
-        (lua_type(L, 2) == LUA_TLIGHTFUNCTION)) {
+    switch(lua_type(L, 2)) {
+    case LUA_TFUNCTION:
       lua_pushvalue(L, 2);  // copy argument (func) to the top of stack
       rtc_cb_ref = luaL_ref(L, LUA_REGISTRYINDEX);
       vfs_register_rtc_cb(file_rtc_cb);
-    } else {
+      break;
+    case LUA_TNIL:
       rtc_cb_ref = LUA_NOREF;
       vfs_register_rtc_cb(NULL);
+      break;
+    default:
+      luaL_error(L, "Callback should be function or nil");
     }
+
     break;
   default:
     break;
@@ -436,6 +454,9 @@ static int file_g_read( lua_State* L, int n, int16_t end_char, int fd )
     int nread   = vfs_read(fd, p, nwanted);
 
     if (nread == VFS_RES_ERR || nread == 0) {
+      if (j > 0) {
+        break;
+      }
       lua_pushnil(L);
       return 1;
     }
@@ -443,7 +464,7 @@ static int file_g_read( lua_State* L, int n, int16_t end_char, int fd )
     for (i = 0; i < nread; ++i) {
       luaL_addchar(&b, p[i]);
       if (p[i] == end_char) {
-        vfs_lseek(fd, -nread + j + i + 1, VFS_SEEK_CUR); //reposition after end char found
+        vfs_lseek(fd, -nread + i + 1, VFS_SEEK_CUR); //reposition after end char found
         nread = 0;   // force break on outer loop
         break;
       }
@@ -585,7 +606,7 @@ static int file_putfile( lua_State* L )
 // Lua: fsinfo()
 static int file_fsinfo( lua_State* L )
 {
-  u32_t total, used;
+  uint32_t total, used;
   if (vfs_fsinfo("", &total, &used)) {
     return luaL_error(L, "file system failed");
   }
@@ -645,7 +666,9 @@ static int file_vol_umount( lua_State *L )
 }
 
 
-LROT_BEGIN(file_obj)
+LROT_BEGIN(file_obj, NULL, LROT_MASK_GC_INDEX)
+  LROT_FUNCENTRY( __gc, file_obj_free )
+  LROT_TABENTRY(  __index, file_obj )
   LROT_FUNCENTRY( close, file_close )
   LROT_FUNCENTRY( read, file_read )
   LROT_FUNCENTRY( readline, file_readline )
@@ -653,32 +676,16 @@ LROT_BEGIN(file_obj)
   LROT_FUNCENTRY( writeline, file_writeline )
   LROT_FUNCENTRY( seek, file_seek )
   LROT_FUNCENTRY( flush, file_flush )
-  LROT_FUNCENTRY( __gc, file_obj_free )
-  LROT_TABENTRY( __index, file_obj )
-LROT_END( file_obj, file_obj, LROT_MASK_GC_INDEX )
+LROT_END(file_obj, NULL, LROT_MASK_GC_INDEX)
 
 
-LROT_BEGIN(file_vol)
-  LROT_FUNCENTRY( umount, file_vol_umount )
-  //  LROT_FUNCENTRY( getfree, file_vol_getfree )
-  //  LROT_FUNCENTRY( getlabel, file_vol_getlabel )
-  //  LROT_FUNCENTRY( __gc, file_vol_free )
+LROT_BEGIN(file_vol, NULL, LROT_MASK_INDEX)
   LROT_TABENTRY( __index, file_vol )
-LROT_END( file_vol, file_vol, LROT_MASK_GC_INDEX )
-
-#ifdef BUILD_SPIFFS
-#define LROT_FUNCENTRY_S(n,f) LROT_FUNCENTRY(n,f)
-#else
-#define LROT_FUNCENTRY_S(n,f) 
-#endif
-#ifdef BUILD_FATFS
-#define LROT_FUNCENTRY_F(n,f) LROT_FUNCENTRY(n,f)
-#else
-#define LROT_FUNCENTRY_F(n,f) 
-#endif
+  LROT_FUNCENTRY( umount, file_vol_umount )
+LROT_END(file_vol, NULL, LROT_MASK_INDEX)
 
 // Module function map
-LROT_BEGIN(file)
+LROT_BEGIN(file, NULL, 0)
   LROT_FUNCENTRY( list, file_list )
   LROT_FUNCENTRY( open, file_open )
   LROT_FUNCENTRY( close, file_close )
@@ -686,8 +693,10 @@ LROT_BEGIN(file)
   LROT_FUNCENTRY( writeline, file_writeline )
   LROT_FUNCENTRY( read, file_read )
   LROT_FUNCENTRY( readline, file_readline )
-  LROT_FUNCENTRY_S( format, file_format )
-  LROT_FUNCENTRY_S( fscfg, file_fscfg )
+#ifdef BUILD_SPIFFS
+  LROT_FUNCENTRY( format, file_format )
+  LROT_FUNCENTRY( fscfg, file_fscfg )
+#endif
   LROT_FUNCENTRY( remove, file_remove )
   LROT_FUNCENTRY( seek, file_seek )
   LROT_FUNCENTRY( flush, file_flush )
@@ -698,19 +707,19 @@ LROT_BEGIN(file)
   LROT_FUNCENTRY( fsinfo, file_fsinfo )
   LROT_FUNCENTRY( on, file_on )
   LROT_FUNCENTRY( stat, file_stat )
-  LROT_FUNCENTRY_F( mount, file_mount )
-  LROT_FUNCENTRY_F( chdir, file_chdir )
-LROT_END( file, NULL, 0 )
+#ifdef BUILD_FATFS
+  LROT_FUNCENTRY( mount, file_mount )
+  LROT_FUNCENTRY( chdir, file_chdir )
+#endif
+LROT_END(file, NULL, 0)
 
 
 int luaopen_file( lua_State *L ) {
-  if (!vfs_mount("/FLASH", 0)) {
-      // Failed to mount -- try reformat
-      dbg_printf("Formatting file system. Please wait...\n");
-      if (!vfs_format()) {
-          NODE_ERR( "\n*** ERROR ***: unable to format. FS might be compromised.\n" );
-          NODE_ERR( "It is advised to re-flash the NodeMCU image.\n" );
-      }
+  int startup_option = platform_rcr_get_startup_option();
+  if ((startup_option & STARTUP_OPTION_DELAY_MOUNT) == 0) {
+      do_flash_mount();
+  } else {
+      myspiffs_set_automount(do_flash_mount);
   }
   luaL_rometatable( L, "file.vol",  LROT_TABLEREF(file_vol));
   luaL_rometatable( L, "file.obj",  LROT_TABLEREF(file_obj));

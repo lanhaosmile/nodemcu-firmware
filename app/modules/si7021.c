@@ -183,13 +183,13 @@ static int si7021_lua_read(lua_State* L) {
 	read_reg(SI7021_CMD_MEASURE_RH_HOLD, buf_h, 3);
 	if (buf_h[2] != si7021_crc8(0, buf_h, 2))	//crc check
 		return luaL_error(L, "crc error");
-	double hum = (uint16_t)((buf_h[0] << 8) | buf_h[1]);
+	lua_Float hum = (uint16_t)((buf_h[0] << 8) | buf_h[1]);
 	hum = ((hum * 125) / 65536 - 6);
 	int humdec = (int)((hum - (int)hum) * 1000);
 
 	uint8_t buf_t[2];	// two byte data, no crc on combined temp measurement
 	read_reg(SI7021_CMD_READ_PREV_TEMP, buf_t, 2);
-	double temp = (uint16_t)((buf_t[0] << 8) | buf_t[1]);
+	lua_Float temp = (uint16_t)((buf_t[0] << 8) | buf_t[1]);
 	temp = ((temp * 175.72) / 65536 - 46.85);
 	int tempdec = (int)((temp - (int)temp) * 1000);
 
@@ -247,7 +247,7 @@ static int si7021_lua_firmware(lua_State* L) {
 	return 1;
 }
 
-LROT_BEGIN(si7021)
+LROT_BEGIN(si7021, NULL, 0)
   LROT_FUNCENTRY( setup, si7021_lua_setup )
   LROT_FUNCENTRY( setting, si7021_lua_setting )
   LROT_FUNCENTRY( read, si7021_lua_read )
@@ -259,7 +259,7 @@ LROT_BEGIN(si7021)
   LROT_NUMENTRY( RH11_TEMP11, SI7021_RH11_TEMP11 )
   LROT_NUMENTRY( HEATER_ENABLE, SI7021_HEATER_ENABLE )
   LROT_NUMENTRY( HEATER_DISABLE, SI7021_HEATER_DISABLE )
-LROT_END( si7021, NULL, 0 )
+LROT_END(si7021, NULL, 0)
 
 
 NODEMCU_MODULE(SI7021, "si7021", si7021, NULL);

@@ -9,13 +9,14 @@
 # define BUFSIZ 1024
 #endif
 
+extern void output_redirect(const char *str, size_t l);
+#define puts(s)  output_redirect((s), strlen(s))
+
 #define printf(...) do { \
-  unsigned char __printf_buf[BUFSIZ]; \
-  sprintf(__printf_buf, __VA_ARGS__); \
+  char __printf_buf[BUFSIZ]; \
+  snprintf(__printf_buf, BUFSIZ, __VA_ARGS__); \
   puts(__printf_buf); \
 } while(0)
 
-extern void output_redirect(const char *str);
-#define puts output_redirect
 
 #endif

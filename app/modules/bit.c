@@ -48,15 +48,13 @@ typedef size_t lua_UInteger;
 
 #define LOGICAL_SHIFT(name, op)                                         \
   static int bit_ ## name(lua_State *L) {                               \
-    lua_pushinteger(L, (lua_UInteger)TOBIT(L, 1) op                     \
-                          (unsigned)luaL_checknumber(L, 2));            \
+    lua_pushinteger(L, (lua_UInteger)TOBIT(L, 1) op  luaL_checkunsigned(L, 2)); \
     return 1;                                                           \
   }
 
 #define ARITHMETIC_SHIFT(name, op)                                      \
   static int bit_ ## name(lua_State *L) {                               \
-    lua_pushinteger(L, (lua_Integer)TOBIT(L, 1) op                      \
-                          (unsigned)luaL_checknumber(L, 2));            \
+    lua_pushinteger(L, (lua_Integer)TOBIT(L, 1) op luaL_checkunsigned(L, 2)); \
     return 1;                                                           \
   }
 
@@ -78,7 +76,7 @@ static int bit_bit( lua_State* L )
 // Lua: res = isset( value, position )
 static int bit_isset( lua_State* L )
 {
-  lua_UInteger val = ( lua_UInteger )luaL_checkinteger( L, 1 );
+  lua_UInteger val =  luaL_checkunsigned( L, 1 );
   unsigned pos = ( unsigned )luaL_checkinteger( L, 2 );
 
   lua_pushboolean( L, val & ( 1 << pos ) ? 1 : 0 );
@@ -88,7 +86,7 @@ static int bit_isset( lua_State* L )
 // Lua: res = isclear( value, position )
 static int bit_isclear( lua_State* L )
 {
-  lua_UInteger val = ( lua_UInteger )luaL_checkinteger( L, 1 );
+  lua_UInteger val =  luaL_checkunsigned( L, 1 );
   unsigned pos = ( unsigned )luaL_checkinteger( L, 2 );
 
   lua_pushboolean( L, val & ( 1 << pos ) ? 0 : 1 );
@@ -98,7 +96,7 @@ static int bit_isclear( lua_State* L )
 // Lua: res = set( value, pos1, pos2, ... )
 static int bit_set( lua_State* L )
 {
-  lua_UInteger val = ( lua_UInteger )luaL_checkinteger( L, 1 );
+  lua_UInteger val =  luaL_checkunsigned( L, 1 );
   unsigned total = lua_gettop( L ), i;
 
   for( i = 2; i <= total; i ++ )
@@ -110,7 +108,7 @@ static int bit_set( lua_State* L )
 // Lua: res = clear( value, pos1, pos2, ... )
 static int bit_clear( lua_State* L )
 {
-  lua_UInteger val = ( lua_UInteger )luaL_checkinteger( L, 1 );
+  lua_UInteger val =  luaL_checkunsigned( L, 1 );
   unsigned total = lua_gettop( L ), i;
 
   for( i = 2; i <= total; i ++ )
@@ -119,7 +117,7 @@ static int bit_clear( lua_State* L )
   return 1;
 }
 
-LROT_BEGIN(bit)
+LROT_BEGIN(bit, NULL, 0)
   LROT_FUNCENTRY( bnot, bit_bnot )
   LROT_FUNCENTRY( band, bit_band )
   LROT_FUNCENTRY( bor, bit_bor )
@@ -132,7 +130,7 @@ LROT_BEGIN(bit)
   LROT_FUNCENTRY( clear, bit_clear )
   LROT_FUNCENTRY( isset, bit_isset )
   LROT_FUNCENTRY( isclear, bit_isclear )
-LROT_END( bit, NULL, 0 )
+LROT_END(bit, NULL, 0)
 
 
 NODEMCU_MODULE(BIT, "bit", bit, NULL);

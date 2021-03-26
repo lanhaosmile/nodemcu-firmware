@@ -45,7 +45,7 @@ typedef struct {
 
 static int active_pulser_ref;
 static pulse_t *active_pulser;
-static task_handle_t tasknumber;
+static platform_task_handle_t tasknumber;
 
 static int gpio_pulse_push_state(lua_State *L, pulse_t *pulser) {
   uint32_t now;
@@ -102,7 +102,7 @@ static int gpio_pulse_stop(lua_State *L) {
     argno++;
   }
 
-  if (lua_type(L, argno) == LUA_TFUNCTION || lua_type(L, argno) == LUA_TLIGHTFUNCTION) {
+  if (lua_isfunction(L, argno)) {
     lua_pushvalue(L, argno);
   } else {
     return luaL_error( L, "missing callback" );
@@ -201,7 +201,7 @@ static int gpio_pulse_build(lua_State *L) {
   luaL_checktype(L, 1, LUA_TTABLE);
 
   // First figure out how big we need the block to be
-  size_t size = luaL_getn(L, 1);
+  size_t size = lua_objlen(L, 1);
 
   if (size > 100) {
     return luaL_error(L, "table is too large: %d entries is more than 100", size);
@@ -321,7 +321,7 @@ static void ICACHE_RAM_ATTR gpio_pulse_timeout(os_param_t p) {
         active_pulser->steps++;
       }
       platform_hw_timer_close(TIMER_OWNER);
-      task_post_low(tasknumber, (task_param_t)0);
+      platform_post_low(tasknumber, 0);
       return;
     }
     active_pulser->steps++;
@@ -341,7 +341,7 @@ static void ICACHE_RAM_ATTR gpio_pulse_timeout(os_param_t p) {
     int16_t stop = active_pulser->stop_pos;
     if (stop == -2 || stop == active_pulser->entry_pos) {
       platform_hw_timer_close(TIMER_OWNER);
-      task_post_low(tasknumber, (task_param_t)0);
+      platform_post_low(tasknumber, 0);
       return;
     }
 
@@ -410,13 +410,15 @@ static int gpio_pulse_start(lua_State *L) {
     argno++;
   }
 
-  if (lua_type(L, argno) == LUA_TFUNCTION || lua_type(L, argno) == LUA_TLIGHTFUNCTION) {
+  if (lua_isfunction(L, argno)) {
     lua_pushvalue(L, argno);
   } else {
     return luaL_error( L, "missing callback" );
   }
 
-  luaL_unref(L, LUA_REGISTRYINDEX, pulser->cb_ref);
+  if (pulser->cb_ref) {
+    luaL_unref(L, LUA_REGISTRYINDEX, pulser->cb_ref);
+  }
   pulser->cb_ref = luaL_ref(L, LUA_REGISTRYINDEX);
 
   active_pulser = pulser;
@@ -463,32 +465,32 @@ static void gpio_pulse_task(os_param_t param, uint8_t prio)
     active_pulser_ref = LUA_NOREF;
     luaL_unref(L, LUA_REGISTRYINDEX, pulser_ref);
 
-    lua_call(L, rc, 0);
+    luaL_pcallx(L, rc, 0);
   }
 }
 
-LROT_BEGIN(pulse)
+
+LROT_BEGIN(pulse, NULL, LROT_MASK_GC_INDEX)
+  LROT_FUNCENTRY( __gc, gpio_pulse_delete )
+  LROT_TABENTRY(  __index, pulse )
   LROT_FUNCENTRY( getstate, gpio_pulse_getstate )
   LROT_FUNCENTRY( stop, gpio_pulse_stop )
   LROT_FUNCENTRY( cancel, gpio_pulse_cancel )
   LROT_FUNCENTRY( start, gpio_pulse_start )
   LROT_FUNCENTRY( adjust, gpio_pulse_adjust )
   LROT_FUNCENTRY( update, gpio_pulse_update )
-  LROT_FUNCENTRY( __gc, gpio_pulse_delete )
-  LROT_TABENTRY( __index, pulse )
-LROT_END( pulse, pulse, LROT_MASK_GC_INDEX )
+LROT_END(pulse, NULL, LROT_MASK_GC_INDEX)
 
 
-LROT_PUBLIC_BEGIN(gpio_pulse)
+LROT_BEGIN(gpio_pulse, NULL, 0)
   LROT_FUNCENTRY( build, gpio_pulse_build )
-  LROT_TABENTRY( __index, gpio_pulse )
-LROT_END( gpio_pulse, gpio_pulse, LROT_MASK_INDEX )
+LROT_END(gpio_pulse, NULL, 0)
 
 
 int gpio_pulse_init(lua_State *L)
 {
   luaL_rometatable(L, "gpio.pulse", LROT_TABLEREF(pulse));
-  tasknumber = task_get_id(gpio_pulse_task);
+  tasknumber = platform_task_get_id(gpio_pulse_task);
   return 0;
 }
 

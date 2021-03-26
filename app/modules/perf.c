@@ -84,7 +84,7 @@ static int perf_start(lua_State *L)
   d->bucket_count = bins;
 
   if (data) {
-    lua_unref(L, data->ref);
+    luaL_unref(L, LUA_REGISTRYINDEX, data->ref);
   }
 
   data = d;
@@ -93,7 +93,7 @@ static int perf_start(lua_State *L)
   if (!platform_hw_timer_init(TIMER_OWNER, FRC1_SOURCE, TRUE)) {
     // Failed to init the timer
     data = NULL;
-    lua_unref(L, d->ref);
+    luaL_unref(L, LUA_REGISTRYINDEX, d->ref);
     luaL_error(L, "Unable to initialize timer");
   }
 
@@ -115,30 +115,30 @@ static int perf_stop(lua_State *L)
   DATA *d = data;
   data = NULL;
 
-  lua_pushnumber(L, d->total_samples);
-  lua_pushnumber(L, d->outside_samples);
+  lua_pushunsigned(L, d->total_samples);
+  lua_pushunsigned(L, d->outside_samples);
   lua_newtable(L);
   int i;
   uint32_t addr = d->start;
   for (i = 0; i < d->bucket_count; i++, addr += (1 << d->bucket_shift)) {
     if (d->bucket[i]) {
-      lua_pushnumber(L, addr);
-      lua_pushnumber(L, d->bucket[i]);
+      lua_pushunsigned(L, addr);
+      lua_pushunsigned(L, d->bucket[i]);
       lua_settable(L, -3);
     }
   }
 
-  lua_pushnumber(L, 1 << d->bucket_shift);
+  lua_pushunsigned(L, 1 << d->bucket_shift);
 
-  lua_unref(L, d->ref);
+  luaL_unref(L, LUA_REGISTRYINDEX, d->ref);
 
   return 4;
 }
 
-LROT_BEGIN(perf)
+LROT_BEGIN(perf, NULL, 0)
   LROT_FUNCENTRY( start, perf_start )
   LROT_FUNCENTRY( stop, perf_stop )
-LROT_END( perf, NULL, 0 )
+LROT_END(perf, NULL, 0)
 
 
 NODEMCU_MODULE(PERF, "perf", perf, NULL);

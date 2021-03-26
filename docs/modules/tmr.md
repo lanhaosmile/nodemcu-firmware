@@ -145,11 +145,48 @@ none
 #### Returns
 `nil`
 
+## tmr.ccount()
+
+Get value of CPU CCOUNT register which contains CPU ticks. The register is 32-bit and rolls over.
+
+Converting the register's CPU ticks to us is done by dividing it to 80 or 160 (CPU80/CPU160) i.e. `tmr.ccount() / node.getcpufreq()`.
+
+Register arithmetic works without need to account for roll over, unlike `tmr.now()`. Because of same reason when CCOUNT is having its 32nd bit set, it appears in Lua as negative number.
+
+#### Syntax
+`tmr.ccount()`
+
+#### Returns
+The current value of CCOUNT register.
+
+#### Example
+```lua
+function timeIt(fnc, cnt)
+   local function loopIt(f2)
+     local t0 = tmr.ccount()
+     for i=1,cnt do
+       f2()
+     end
+     local t1 = tmr.ccount()
+     return math.ceil((t1-t0)/cnt)
+   end
+   assert(type(fnc) == "function", "function to test missing")
+   cnt = cnt or 1000
+   local emptyTime = loopIt(function()end)
+   local deltaCPUTicks = math.abs(loopIt(fnc) - emptyTime)
+   local deltaUS = math.ceil(deltaCPUTicks/node.getcpufreq())
+   return deltaCPUTicks, deltaUS
+end
+
+print( timeIt(function() tmr.ccount() end) )
+```
+
 ## Timer Object Methods
 
 ### tobj:alarm()
 
-This is a convenience function combining [`tobj:register()`](#tobjregister) and [`tobj:start()`](#tobjstart) into a single call.
+This is a convenience function combining [`tobj:register()`](#tobjregister) and [`tobj:start()`](#tobjstart) into a single call. This is the reason why this method has the same parameters as `tobj:register()`.
+If `tobj:alarm()` is invoked on an already running timer the timer is stopped, new parameters are set and timer is (re)started (similar to call `tobj:start(true)`).
 
 To free up the resources with this timer when done using it, call [`tobj:unregister()`](#tobjunregister) on it. For one-shot timers this is not necessary, unless they were stopped before they expired.
 
@@ -237,16 +274,16 @@ mytimer:start()
 
 ### tobj:start()
 
-Starts or restarts a previously configured timer.
+Starts or restarts a previously configured timer. If the timer is running the timer is restarted only when `restart` parameter is `true`. Otherwise `false` is returned signaling error.
 
 #### Syntax
-`tobj:start()`
+`tobj:start([restart])`
 
 #### Parameters
-None
+- `restart` optional boolean parameter forcing to restart already running timer
 
 #### Returns
-`true` if the timer was started, `false` on error
+`true` if the timer was (re)started, `false` on error
 
 #### Example
 ```lua

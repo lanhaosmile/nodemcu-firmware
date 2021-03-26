@@ -193,11 +193,11 @@
     <ClCompile Include="..\..\app\lua\llex.c" />
     <ClCompile Include="..\..\app\lua\lmathlib.c" />
     <ClCompile Include="..\..\app\lua\lmem.c" />
+    <ClCompile Include="..\..\app\lua\lnodemcu.c" />
     <ClCompile Include="..\..\app\lua\loadlib.c" />
     <ClCompile Include="..\..\app\lua\lobject.c" />
     <ClCompile Include="..\..\app\lua\lopcodes.c" />
     <ClCompile Include="..\..\app\lua\lparser.c" />
-    <ClCompile Include="..\..\app\lua\lrotable.c" />
     <ClCompile Include="..\..\app\lua\lstate.c" />
     <ClCompile Include="..\..\app\lua\lstring.c" />
     <ClCompile Include="..\..\app\lua\lstrlib.c" />
@@ -234,7 +234,6 @@
     <ClInclude Include="..\..\app\lua\lobject.h" />
     <ClInclude Include="..\..\app\lua\lopcodes.h" />
     <ClInclude Include="..\..\app\lua\lparser.h" />
-    <ClInclude Include="..\..\app\lua\lrodefs.h" />
     <ClInclude Include="..\..\app\lua\lrotable.h" />
     <ClInclude Include="..\..\app\lua\lstate.h" />
     <ClInclude Include="..\..\app\lua\lstring.h" />

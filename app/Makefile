@@ -15,10 +15,22 @@ TARGET = eagle
 #FLAVOR = release
 FLAVOR = debug
 
+# Handle Lua Directory selector
+ifeq ("$(LUA)","")
+  LUA_DIR := lua
+else ifeq ("$(LUA)","51")
+  LUA_DIR := lua
+else ifeq ("$(LUA)","53")
+  LUA_DIR := lua53
+else
+  $(error Unsupported value "$(LUA)" for variable "LUA", \
+    expected "51", "53" or unset/empty)
+endif
+
 ifndef PDIR # {
 GEN_IMAGES= eagle.app.v6.out
 GEN_BINS= eagle.app.v6.bin
-OPT_MKTARGETS        := coap dht http mqtt pcm sjson sqlite3 tsl2561 websocket
+OPT_MKTARGETS        := coap dht http mqtt pcm sjson tsl2561 websocket
 OPT_MKLIBTARGETS     := u8g2 ucg
 SEL_MKTARGETS        := $(shell $(CC) -E -dM include/user_modules.h | sed -n '/^\#define LUA_USE_MODULES_/{s/.\{24\}\(.*\)/\L\1/; p}')
 OPT_SEL_MKLIBTARGETS := $(foreach tgt,$(OPT_MKLIBTARGETS),$(findstring $(tgt), $(SEL_MKTARGETS)))
@@ -34,16 +46,15 @@ SUBDIRS= 					\
 	mbedtls 				\
 	platform 				\
 	libc 					\
-	lua 					\
+	$(LUA_DIR)				\
 	lwip 					\
-	task 					\
 	smart 					\
 	modules 				\
 	spiffs 					\
-	net						\
+	net					\
 	fatfs					\
 	esp-gdbstub				\
-	pm						\
+	pm					\
 	uzlib					\
 	$(OPT_SEL_MKTARGETS)
 
@@ -64,10 +75,9 @@ COMPONENTS_eagle.app.v6 = 		\
 	user/libuser.a 				\
 	crypto/libcrypto.a			\
 	driver/libdriver.a 			\
-	platform/libplatform.a		\
-	task/libtask.a 				\
+	platform/libplatform.a 		\
 	libc/liblibc.a 				\
-	lua/liblua.a 				\
+	$(LUA_DIR)/liblua.a 		\
 	lwip/liblwip.a 				\
 	smart/smart.a 				\
 	spiffs/spiffs.a 			\
@@ -152,8 +162,8 @@ DDEFINES += 						\
 #
 # Required for each makefile to inherit from the parent
 #
-INCLUDES := -I $(PDIR)libc -I $(PDIR)lua -I $(PDIR)platform \
-            $(INCLUDES) -I $(PDIR) -I $(PDIR)include 
+INCLUDES := -I $(PDIR)libc -I $(PDIR)$(LUA_DIR) -I $(PDIR)platform \
+            $(INCLUDES) -I $(PDIR) -I $(PDIR)include
 PDIR := ../$(PDIR)
 
 sinclude $(PDIR)Makefile

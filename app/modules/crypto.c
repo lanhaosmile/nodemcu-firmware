@@ -44,75 +44,6 @@ static int crypto_sha1( lua_State* L )
   return 1;
 }
 
-#ifdef LUA_USE_MODULES_ENCODER
-static int call_encoder( lua_State* L, const char *function ) {
-  if (lua_gettop(L) != 1) {
-    luaL_error(L, "%s must have one argument", function);
-  }
-  lua_getfield(L, LUA_GLOBALSINDEX, "encoder");
-  if (!lua_istable(L, -1) && !lua_isrotable(L, -1)) { // also need table just in case encoder has been overloaded
-    luaL_error(L, "Cannot find encoder.%s", function);
-  }
-  lua_getfield(L, -1, function);
-  lua_insert(L, 1);    //move function below the argument
-  lua_pop(L, 1);       //and dump the encoder rotable from stack.
-  lua_call(L,1,1);     // call encoder.xxx(string)
-  return 1;
-}
-
-static int crypto_base64_encode (lua_State* L) {
-  return call_encoder(L, "toBase64");
-}
-static int crypto_hex_encode (lua_State* L) {
-  return call_encoder(L, "toHex");
-}
-#else
-static const char* bytes64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-/**
-  * encoded = crypto.toBase64(raw)
-  *
-  * Encodes raw binary string as base64 string.
-  */
-static int crypto_base64_encode( lua_State* L )
-{
-  int len, i;
-  const char* msg = luaL_checklstring(L, 1, &len);
-  luaL_Buffer out;
-
-  luaL_buffinit(L, &out);
-  for (i = 0; i < len; i += 3) {
-    int a = msg[i];
-    int b = (i + 1 < len) ? msg[i + 1] : 0;
-    int c = (i + 2 < len) ? msg[i + 2] : 0;
-    luaL_addchar(&out, bytes64[a >> 2]);
-    luaL_addchar(&out, bytes64[((a & 3) << 4) | (b >> 4)]);
-    luaL_addchar(&out, (i + 1 < len) ? bytes64[((b & 15) << 2) | (c >> 6)] : 61);
-    luaL_addchar(&out, (i + 2 < len) ? bytes64[(c & 63)] : 61);
-  }
-  luaL_pushresult(&out);
-  return 1;
-}
-
-/**
-  * encoded = crypto.toHex(raw)
-  *
-  *	Encodes raw binary string as hex string.
-  */
-static int crypto_hex_encode( lua_State* L)
-{
-  int len, i;
-  const char* msg = luaL_checklstring(L, 1, &len);
-  luaL_Buffer out;
-
-  luaL_buffinit(L, &out);
-  for (i = 0; i < len; i++) {
-    luaL_addchar(&out, crypto_hexbytes[msg[i] >> 4]);
-    luaL_addchar(&out, crypto_hexbytes[msg[i] & 0xf]);
-  }
-  luaL_pushresult(&out);
-  return 1;
-}
-#endif
 /**
   * masked = crypto.mask(message, mask)
   *
@@ -142,7 +73,7 @@ static inline int bad_mem  (lua_State *L) { return luaL_error (L, "insufficient 
 static inline int bad_file (lua_State *L) { return luaL_error (L, "file does not exist"); }
 
 /* rawdigest = crypto.hash("MD5", str)
- * strdigest = crypto.toHex(rawdigest)
+ * strdigest = encoder.toHex(rawdigest)
  */
 static int crypto_lhash (lua_State *L)
 {
@@ -164,7 +95,7 @@ static int crypto_lhash (lua_State *L)
  * sha = crypto.new_hash("MD5")
  * sha.update("Data")
  * sha.update("Data2")
- * strdigest = crypto.toHex(sha.finalize())
+ * strdigest = encoder.toHex(sha.finalize())
  */
 
 #define WANT_HASH 0
@@ -188,7 +119,7 @@ static int crypto_new_hash_hmac (lua_State *L, int what)
     k_opad_len = mi->block_size;
   }
 
-  // create a userdatum with specific metatable.  This comprises the ud header, 
+  // create a userdatum with specific metatable.  This comprises the ud header,
   // the encrypto context block, and an optional HMAC block as a single allocation
   // unit
   udlen = sizeof(digest_user_datum_t) + mi->ctx_size + k_opad_len;
@@ -198,10 +129,10 @@ static int crypto_new_hash_hmac (lua_State *L, int what)
 
   void *ctx = dudat + 1;  // The context block immediately follows the digest_user_datum
   mi->create (ctx);
-  
+
   if (what == WANT_HMAC) {
     // The k_opad block immediately follows the context block
-    k_opad = (char *)ctx + mi->ctx_size; 
+    k_opad = (char *)ctx + mi->ctx_size;
     crypto_hmac_begin (ctx, mi, key, len, k_opad);
   }
 
@@ -274,7 +205,7 @@ static sint32_t vfs_read_wrap (int fd, void *ptr, size_t len)
 }
 
 /* rawdigest = crypto.hash("MD5", filename)
- * strdigest = crypto.toHex(rawdigest)
+ * strdigest = encoder.toHex(rawdigest)
  */
 static int crypto_flhash (lua_State *L)
 {
@@ -308,7 +239,7 @@ static int crypto_flhash (lua_State *L)
 
 
 /* rawsignature = crypto.hmac("SHA1", str, key)
- * strsignature = crypto.toHex(rawsignature)
+ * strsignature = encoder.toHex(rawsignature)
  */
 static int crypto_lhmac (lua_State *L)
 {
@@ -366,7 +297,7 @@ static int crypto_encdec (lua_State *L, bool enc)
   int status = mech->run (&op);
 
   lua_pushlstring (L, buf, outlen);  /* discarded on error but what the hell */
-  luaM_freearray(L, buf, outlen, char);
+  luaN_freearray(L, buf, outlen);
 
   return status ? 1 : luaL_error (L, "crypto op failed");
 
@@ -383,19 +314,18 @@ static int lcrypto_decrypt (lua_State *L)
 }
 
 // Hash function map
-LROT_BEGIN(crypto_hash)
+
+LROT_BEGIN(crypto_hash_map, NULL, LROT_MASK_INDEX)
+  LROT_TABENTRY( __index, crypto_hash_map )
   LROT_FUNCENTRY( update, crypto_hash_update )
   LROT_FUNCENTRY( finalize, crypto_hash_finalize )
-  LROT_TABENTRY( __index, crypto_hash )
-LROT_END( crypto_hash, crypto_hash, LROT_MASK_INDEX )
+LROT_END(crypto_hash_map, NULL, LROT_MASK_INDEX)
 
 
 
 // Module function map
-LROT_BEGIN(crypto)
+LROT_BEGIN(crypto, NULL, 0)
   LROT_FUNCENTRY( sha1, crypto_sha1 )
-  LROT_FUNCENTRY( toBase64, crypto_base64_encode )
-  LROT_FUNCENTRY( toHex, crypto_hex_encode )
   LROT_FUNCENTRY( mask, crypto_mask )
   LROT_FUNCENTRY( hash, crypto_lhash )
   LROT_FUNCENTRY( fhash, crypto_flhash )
@@ -404,12 +334,12 @@ LROT_BEGIN(crypto)
   LROT_FUNCENTRY( new_hmac, crypto_new_hmac )
   LROT_FUNCENTRY( encrypt, lcrypto_encrypt )
   LROT_FUNCENTRY( decrypt, lcrypto_decrypt )
-LROT_END( crypto, NULL, 0 )
+LROT_END(crypto, NULL, 0)
 
 
 int luaopen_crypto ( lua_State *L )
 {
-  luaL_rometatable(L, "crypto.hash", LROT_TABLEREF(crypto_hash));
+  luaL_rometatable(L, "crypto.hash", LROT_TABLEREF(crypto_hash_map));
   return 0;
 }
 

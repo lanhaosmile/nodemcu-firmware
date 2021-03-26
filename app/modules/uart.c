@@ -7,83 +7,56 @@
 #include <stdint.h>
 #include <string.h>
 #include "rom.h"
+#include "driver/input.h"
 
 static int uart_receive_rf = LUA_NOREF;
-bool run_input = true;
-bool uart_on_data_cb(const char *buf, size_t len){
-  if(!buf || len==0)
-    return false;
-  if(uart_receive_rf == LUA_NOREF)
-    return false;
+
+void uart_on_data_cb(const char *buf, size_t len){
   lua_State *L = lua_getstate();
-  if(!L)
-    return false;
   lua_rawgeti(L, LUA_REGISTRYINDEX, uart_receive_rf);
   lua_pushlstring(L, buf, len);
-  lua_call(L, 1, 0);
-  return !run_input;
+  luaL_pcallx(L, 1, 0);
 }
 
-uint16_t need_len = 0;
-int16_t end_char = -1;
 // Lua: uart.on("method", [number/char], function, [run_input])
 static int l_uart_on( lua_State* L )
 {
-  size_t sl, el;
-  int32_t run = 1;
-  uint8_t stack = 1;
-  const char *method = luaL_checklstring( L, stack, &sl );
-  stack++;
-  if (method == NULL)
-    return luaL_error( L, "wrong arg type" );
+  size_t el;
+  int stack = 2, data_len = -1;
+  char end_char = 0;
+  const char *method = lua_tostring( L, 1);
+  bool run_input = true;
+  luaL_argcheck(L, method && !strcmp(method, "data"), 1, "method not supported");
 
-  if( lua_type( L, stack ) == LUA_TNUMBER )
-  {
-    need_len = ( uint16_t )luaL_checkinteger( L, stack );
+  if (lua_type( L, stack ) == LUA_TNUMBER) {
+    data_len = luaL_checkinteger( L, stack );
+    luaL_argcheck(L, data_len >= 0 && data_len < LUA_MAXINPUT, stack, "wrong arg range");
     stack++;
-    end_char = -1;
-    if( need_len > 255 ){
-      need_len = 255;
-      return luaL_error( L, "wrong arg range" );
-    }
-  }
-  else if(lua_isstring(L, stack))
-  {
+  } else if (lua_isstring(L, stack)) {
     const char *end = luaL_checklstring( L, stack, &el );
+    end_char = end[0];
     stack++;
-    if(el!=1){
+    if(el!=1) {
       return luaL_error( L, "wrong arg range" );
     }
-    end_char = (int16_t)end[0];
-    need_len = 0;
   }
 
-  // luaL_checkanyfunction(L, stack);
-  if (lua_type(L, stack) == LUA_TFUNCTION || lua_type(L, stack) == LUA_TLIGHTFUNCTION){
-    if ( lua_isnumber(L, stack+1) ){
-      run = lua_tointeger(L, stack+1);
+  if (lua_isfunction(L, stack)) {
+    if (lua_isnumber(L, stack+1) && lua_tointeger(L, stack+1) == 0) {
+      run_input = false;
     }
-    lua_pushvalue(L, stack);  // copy argument (func) to the top of stack
+    lua_pushvalue(L, stack);
+    luaL_unref(L, LUA_REGISTRYINDEX, uart_receive_rf);
+    uart_receive_rf = luaL_ref(L, LUA_REGISTRYINDEX);
   } else {
-    lua_pushnil(L);
+    luaL_unref(L, LUA_REGISTRYINDEX, uart_receive_rf);
+    uart_receive_rf = LUA_NOREF;
   }
-  if(sl == 4 && strcmp(method, "data") == 0){
-    run_input = true;
-    if(uart_receive_rf != LUA_NOREF){
-      luaL_unref(L, LUA_REGISTRYINDEX, uart_receive_rf);
-      uart_receive_rf = LUA_NOREF;
-    }
-    if(!lua_isnil(L, -1)){
-      uart_receive_rf = luaL_ref(L, LUA_REGISTRYINDEX);
-      if(run==0)
-        run_input = false;
-    } else {
-      lua_pop(L, 1);
-    }
-  }else{
-    lua_pop(L, 1);
-    return luaL_error( L, "method not supported" );
-  }
+
+  if (uart_receive_rf == LUA_NOREF) {
+    input_setup_receive(NULL, 0, 0, 1);
+  } else
+    input_setup_receive(uart_on_data_cb, data_len, end_char, run_input);
   return 0;
 }
 
@@ -91,7 +64,7 @@ bool uart0_echo = true;
 // Lua: actualbaud = setup( id, baud, databits, parity, stopbits, echo )
 static int l_uart_setup( lua_State* L )
 {
-  uint32_t id, databits, parity, stopbits, echo = 1;
+  uint32_t id, databits, parity, stopbits;
   uint32_t baud, res;
 
   id = luaL_checkinteger( L, 1 );
@@ -101,12 +74,8 @@ static int l_uart_setup( lua_State* L )
   databits = luaL_checkinteger( L, 3 );
   parity = luaL_checkinteger( L, 4 );
   stopbits = luaL_checkinteger( L, 5 );
-  if(lua_isnumber(L,6)){
-    echo = lua_tointeger(L,6);
-    if(echo!=0)
-      uart0_echo = true;
-    else
-      uart0_echo = false;
+  if (lua_isnumber(L,6)) {
+    input_setecho(lua_tointeger(L,6) ? true : false);
   }
 
   res = platform_uart_setup( id, baud, databits, parity, stopbits );
@@ -173,20 +142,46 @@ static int l_uart_write( lua_State* L )
   return 0;
 }
 
+#define DIR_RX 0
+#define DIR_TX 1
+
+static int l_uart_fifodepth( lua_State* L )
+{
+  int id  = luaL_optinteger( L, 1, 0 );
+  if ((id != 0) && (id != 1))
+    return luaL_argerror(L, 1, "Bad UART id; must be 0 or 1");
+
+  int dir = luaL_optinteger( L, 2, 0 );
+  if ((dir != DIR_RX) && (dir != DIR_TX))
+    return luaL_argerror(L, 2, "Bad direction; must be DIR_RX or DIR_TX");
+
+  int reg = READ_PERI_REG(UART_STATUS(id));
+  int rsh = reg >> ((dir == DIR_RX) ? UART_RXFIFO_CNT_S : UART_TXFIFO_CNT_S);
+  int rm  = rsh &  ((dir == DIR_RX) ? UART_RXFIFO_CNT   : UART_TXFIFO_CNT  );
+
+  lua_pushinteger(L, rm);
+  return 1;
+}
+
 // Module function map
-LROT_BEGIN(uart)
+LROT_BEGIN(uart, NULL, 0)
   LROT_FUNCENTRY( setup, l_uart_setup )
   LROT_FUNCENTRY( getconfig, l_uart_getconfig )
   LROT_FUNCENTRY( write, l_uart_write )
   LROT_FUNCENTRY( on, l_uart_on )
   LROT_FUNCENTRY( alt, l_uart_alt )
+  LROT_FUNCENTRY( fifodepth, l_uart_fifodepth )
+
   LROT_NUMENTRY( STOPBITS_1, PLATFORM_UART_STOPBITS_1 )
   LROT_NUMENTRY( STOPBITS_1_5, PLATFORM_UART_STOPBITS_1_5 )
   LROT_NUMENTRY( STOPBITS_2, PLATFORM_UART_STOPBITS_2 )
   LROT_NUMENTRY( PARITY_NONE, PLATFORM_UART_PARITY_NONE )
   LROT_NUMENTRY( PARITY_EVEN, PLATFORM_UART_PARITY_EVEN )
   LROT_NUMENTRY( PARITY_ODD, PLATFORM_UART_PARITY_ODD )
-LROT_END( uart, NULL, 0 )
+
+  LROT_NUMENTRY( DIR_RX, DIR_RX )
+  LROT_NUMENTRY( DIR_TX, DIR_TX )
+LROT_END(uart, NULL, 0)
 
 
 NODEMCU_MODULE(UART, "uart", uart, NULL);

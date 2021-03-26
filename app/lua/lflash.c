@@ -5,7 +5,6 @@
 
 #define lflash_c
 #define LUA_CORE
-#define LUAC_CROSS_FILE
 #include "lua.h"
 
 #include "lobject.h"
@@ -14,6 +13,7 @@
 #include "lfunc.h"
 #include "lflash.h"
 #include "platform.h"
+#include "user_interface.h"
 #include "vfs.h"
 #include "uzlib.h"
 
@@ -70,7 +70,7 @@ struct OUTPUT {
   outBlock  buffer;
   int       ndx;
   uint32_t  crc;
-  int     (*fullBlkCB) (void);
+  void    (*fullBlkCB) (void);
   int       flashLen;
   int       flagsLen;
   int       flagsNdx;
@@ -79,7 +79,6 @@ struct OUTPUT {
 } *out;
 
 #ifdef NODE_DEBUG
-extern void dbg_printf(const char *fmt, ...) __attribute__ ((format (printf, 1, 2)));
 void dumpStrt(stringtable *tb, const char *type) {
   int i,j;
   GCObject *o;
@@ -89,9 +88,8 @@ void dumpStrt(stringtable *tb, const char *type) {
   for (i=0; i<tb->size; i++)
     for(o = tb->hash[i], j=0; o; (o=o->gch.next), j++ ) {
       TString *ts =cast(TString *, o);
-      NODE_DBG("%5d %5d %08x %08x %5d %1s %s\n",
-               i, j, (size_t) ts, ts->tsv.hash, ts->tsv.len,
-               ts_isreadonly(ts) ? "R" : " ",  getstr(ts));
+      NODE_DBG("%5d %5d %08x %08x %5d %s\n",
+               i, j, (size_t) ts, ts->tsv.hash, ts->tsv.len, getstr(ts));
     }
 }
 
@@ -122,7 +120,7 @@ static char *flashSetPosition(uint32_t offset){
 
 static char *flashBlock(const void* b, size_t size)  {
   void *cur = flashPosition();
-  NODE_DBG("flashBlock((%04x),%08x,%04x)\n", curOffset,b,size);
+  NODE_DBG("flashBlock((%04x),%p,%04x)\n", curOffset,b,size);
   lua_assert(ALIGN_BITS(b) == 0 && ALIGN_BITS(size) == 0);
   platform_flash_write(b, flashAddrPhys+curOffset, size);
   curOffset += size;
@@ -140,7 +138,7 @@ static void flashErase(uint32_t start, uint32_t end){
 }
 
 /* =====================================================================================
- * luaN_init(), luaN_reload_reboot() and luaN_index() are exported via lflash.h.
+ * luaN_init() is exported via lflash.h.
  * The first is the startup hook used in lstate.c and the last two are
  * implementations of the node.flash API calls.
  */
@@ -173,15 +171,15 @@ LUAI_FUNC void luaN_init (lua_State *L) {
   }
 
   if ((fh->flash_sig & (~FLASH_SIG_ABSOLUTE)) != FLASH_SIG ) {
-    NODE_ERR("Flash sig not correct: %p vs %p\n",
+    NODE_ERR("Flash sig not correct: 0x%08x vs 0x%08x\n",
        fh->flash_sig & (~FLASH_SIG_ABSOLUTE), FLASH_SIG);
     return;
   }
 
   if (fh->pROhash == ALL_SET ||
       ((fh->mainProto - cast(FlashAddr, fh)) >= fh->flash_size)) {
-    NODE_ERR("Flash size check failed: %p vs 0xFFFFFFFF; %p >= %p\n",
-       fh->mainProto - cast(FlashAddr, fh), fh->flash_size);
+    NODE_ERR("Flash size check failed: 0x%08x vs 0xFFFFFFFF; 0x%08x >= 0x%08x\n",
+       fh->pROhash, fh->mainProto - cast(FlashAddr, fh), fh->flash_size);
     return;
   }
 
@@ -194,21 +192,21 @@ LUAI_FUNC void luaN_init (lua_State *L) {
 //extern void software_reset(void);
 static int loadLFS (lua_State *L);
 static int loadLFSgc (lua_State *L);
-static int procFirstPass (void);
+static void procFirstPass (void);
+
+/* luaL_lfsreload() is exported via lauxlib.h */
 
 /*
  * Library function called by node.flashreload(filename).
  */
-LUALIB_API int luaN_reload_reboot (lua_State *L) {
-  // luaL_dbgbreak();
+LUALIB_API void luaL_lfsreload (lua_State *L) {
   const char *fn = lua_tostring(L, 1), *msg = "";
   int status;
 
   if (G(L)->LFSsize == 0) {
     lua_pushstring(L, "No LFS partition allocated");
-    return 1;
+    return;
   }
-
 
  /*
   * Do a protected call of loadLFS.
@@ -238,7 +236,7 @@ LUALIB_API int luaN_reload_reboot (lua_State *L) {
     lua_cpcall(L, &loadLFSgc, NULL);
     lua_settop(L, 0);
     lua_pushstring(L, msg);
-    return 1;
+    return;
   }
 
   if (status == 0) {
@@ -258,61 +256,21 @@ LUALIB_API int luaN_reload_reboot (lua_State *L) {
   NODE_ERR(msg);
 
   while (1) {}  // Force WDT as the ROM software_reset() doesn't seem to work
-  return 0;
 }
 
 
-/*
- * If the arg is a valid LFS module name then return the LClosure
- * pointing to it. Otherwise return:
- *  -  The Unix time that the LFS was built
- *  -  The base address and length of the LFS
- *  -  An array of the module names in the LFS
- */
-LUAI_FUNC int luaN_index (lua_State *L) {
-  int i;
-  int n = lua_gettop(L);
-
-  /* Return nil + the LFS base address if the LFS size > 0 and it isn't loaded */
-  if (!(G(L)->ROpvmain)) {
-    lua_settop(L, 0);
-    lua_pushnil(L);
-    if (G(L)->LFSsize) {
-      lua_pushinteger(L, (lua_Integer) flashAddr);
-      lua_pushinteger(L, flashAddrPhys);
-      lua_pushinteger(L, G(L)->LFSsize);
-      return 4;
-    } else {
-      return 1;
-    }
-  }
-
-  /* Push the LClosure of the LFS index function */
-  Closure *cl = luaF_newLclosure(L, 0, hvalue(gt(L)));
-  cl->l.p = G(L)->ROpvmain;
-  lua_settop(L, n+1);
-  setclvalue(L, L->top-1, cl);
-
-  /* Move it infront of the arguments and call the index function */
-  lua_insert(L, 1);
-  lua_call(L, n, LUA_MULTRET);
-
-  /* Return it if the response if a single value (the function) */
-  if (lua_gettop(L) == 1)
-    return 1;
-
-  lua_assert(lua_gettop(L) == 2);
-
-  /* Otherwise add the base address of the LFS, and its size bewteen the */
-  /* Unix time and the module list, then return all 4 params. */
-  lua_pushinteger(L, (lua_Integer) flashAddr);
-  lua_insert(L, 2);
-  lua_pushinteger(L, flashAddrPhys);
-  lua_insert(L, 3);
-  lua_pushinteger(L, cast(FlashHeader *, flashAddr)->flash_size);
-  lua_insert(L, 4);
-  return 5;
+LUA_API void lua_getlfsconfig (lua_State *L, int *config) {
+  if (!config)
+    return;
+  config[0] = (int) flashAddr;                   /* LFS region mapped address */
+  config[1] = flashAddrPhys;                 /* LFS region base flash address */
+  config[2] = G(L)->LFSsize;                        /* LFS region actual size */
+  config[3] = (G(L)->ROstrt.hash) ? cast(FlashHeader *, flashAddr)->flash_size : 0;
+                                                           /* LFS region used */
+  config[4] = 0;                                       /* Not used in Lua 5.1 */
 }
+
+
 /* =====================================================================================
  * The following routines use my uzlib which was based on pfalcon's inflate and
  * deflate routines.  The standard NodeMCU make also makes two host tools uz_zip
@@ -406,11 +364,10 @@ static uint8_t recall_byte (unsigned offset) {
  *  -  Once the flags array is in-buffer this is also captured.
  * This logic is slightly complicated by the last buffer is typically short.
  */
-int procFirstPass (void) {
+void procFirstPass (void) {
   int len = (out->ndx % WRITE_BLOCKSIZE) ?
                out->ndx % WRITE_BLOCKSIZE : WRITE_BLOCKSIZE;
   if (out->ndx <= WRITE_BLOCKSIZE) {
-    uint32_t fl;
     /* Process the flash header and cache the FlashHeader fields we need */
     FlashHeader *fh = cast(FlashHeader *, out->block[0]);
     out->flashLen   = fh->flash_size;                         /* in bytes */
@@ -442,12 +399,10 @@ int procFirstPass (void) {
     memcpy(out->flags + out->flagsNdx, out->block[0]->byte + start, len - start);
     out->flagsNdx += (len -start) / WORDSIZE;  /* flashLen and len are word aligned */
   }
-
-  return 1;
 }
 
 
-int procSecondPass (void) {
+void procSecondPass (void) {
  /*
   * The length rules are different for the second pass since this only processes
   * upto the flashLen and not the full image.  This also works in word units.
@@ -456,7 +411,8 @@ int procSecondPass (void) {
   int i, len = (out->ndx > out->flashLen) ?
                   (out->flashLen % WRITE_BLOCKSIZE) / WORDSIZE :
                   WRITE_BLOCKSIZE / WORDSIZE;
-  uint32_t *buf = (uint32_t *) out->buffer.byte, flags;
+  uint32_t *buf = (uint32_t *) out->buffer.byte;
+  uint32_t  flags = 0;
  /*
   * Relocate all the addresses tagged in out->flags.  This can't be done in
   * place because the out->blocks are still in use as dictionary content so
@@ -487,12 +443,12 @@ int procSecondPass (void) {
 }
 
 /*
- * loadLFS)() is protected called from luaN_reload_reboot so that it can recover
+ * loadLFS)() is protected called from luaL_lfsreload() so that it can recover
  * from out of memory and other thrown errors.  loadLFSgc() GCs any resources.
  */
 static int loadLFS (lua_State *L) {
   const char *fn = cast(const char *, lua_touserdata(L, 1));
-  int i, n, res;
+  int i, res;
   uint32_t crc;
 
   /* Allocate and zero in and out structures */
@@ -541,12 +497,11 @@ static int loadLFS (lua_State *L) {
   flashErase(0,(out->flashLen - 1)/FLASH_PAGE_SIZE);
   flashSetPosition(0);
 
-  if (uzlib_inflate(get_byte, put_byte, recall_byte,
-                    in->len, &crc, &in->inflate_state) != UZLIB_OK)
-  if (res < 0) {
+  if ((res = uzlib_inflate(get_byte, put_byte, recall_byte,
+                    in->len, &crc, &in->inflate_state)) != UZLIB_DONE) {
     const char *err[] = {"Data_error during decompression",
                          "Chksum_error during decompression",
-                         "Dictionary error during decompression"
+                         "Dictionary error during decompression",
                          "Memory_error during decompression"};
     flash_error(err[UZLIB_DATA_ERROR - res]);
   }

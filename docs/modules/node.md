@@ -1,7 +1,7 @@
 # node Module
 | Since  | Origin / Contributor  | Maintainer  | Source  |
 | :----- | :-------------------- | :---------- | :------ |
-| 2014-12-22 | [Zeroday](https://github.com/funshine) | [Zeroday](https://github.com/funshine) | [node.c](../../app/modules/node.c)|
+| 2014-12-22 | [Zeroday](https://github.com/funshine) | [TerryE](https://github.com/TerryE) | [node.c](../../app/modules/node.c)|
 
 The node module provides access to system-level features such as sleep, restart and various info and IDs.
 
@@ -174,36 +174,13 @@ flash ID (number)
 
 ## node.flashindex()
 
-Returns the function reference for a function in the [LFS (Lua Flash Store)](../lfs.md).
+Deprecated synonym for [`node.LFS.get()`](#nodelfsget) to return an LFS function reference.
 
-#### Syntax
-`node.flashindex(modulename)`
-
-#### Parameters
-`modulename`  The name of the module to be loaded.  If this is `nil` or invalid then an info list is returned
-
-#### Returns
--  In the case where the LFS in not loaded, `node.flashindex` evaluates to `nil`, followed by the flash mapped base addresss of the LFS, its flash offset, and the size of the LFS.
--  If the LFS is loaded and the function is called with the name of a valid module in the LFS, then the function is returned in the same way the `load()` and the other Lua load functions do.
--  Otherwise an extended info list is returned: the Unix time of the LFS build, the flash and mapped base addresses of the LFS and its current length, and an array of the valid module names in the LFS.
-
-#### Example
-
-The `node.flashindex()` is a low level API call that is normally wrapped using standard Lua code to present a simpler application API.  See the module `_init.lua` in the `lua_examples/lfs` directory for an example of how to do this.
+Note that this returns `nil` if the function does not exist in LFS. 
 
 ## node.flashreload()
 
-Reload the [LFS (Lua Flash Store)](../lfs.md) with the flash image provided. Flash images are generated on the host machine using the `luac.cross`commnad.
-
-#### Syntax
-`node.flashreload(imageName)`
-
-#### Parameters
-`imageName` The name of a image file in the filesystem to be loaded into the LFS.
-
-#### Returns
-`Error message`  LFS images are now gzip compressed.  In the case of the `imagename` being a valid LFS image, this is expanded and loaded into flash.  The ESP is then immediately rebooted, _so control is not returned to the calling Lua application_ in the case of a successful reload.  This reload process internally makes two passes through the LFS image file; and on the first it validates the file and header formats and detects any errors.  If any is detected then an error string is returned.
-
+Deprecated synonym for [`node.LFS.reload()`](#nodelfsreload) to reload [LFS (Lua Flash Store)](../lfs.md) with the named flash image provided.
 
 ## node.flashsize()
 
@@ -278,7 +255,6 @@ system heap size left in bytes (number)
 
 Returns information about hardware, software version and build configuration.
 
-
 #### Syntax
 `node.info([group])`
 
@@ -294,14 +270,22 @@ If a `group` is given the return value will be a table containing the following 
 	- `flash_size` (number)
 	- `flash_mode` (number) 0 = QIO, 1 = QOUT, 2 = DIO, 15 = DOUT.
 	- `flash_speed` (number)
+
+- for `group` = `"lfs"`
+	- `lfs_base` (number)	Flash offset of selected LFS region 
+	- `lfs_mapped` (number)	Mapped memory address of selected LFS region
+	- `lfs_size` (number)	size of selected LFS region
+	- `lfs_used` (number)	actual size used by current LFS image
+
 - for `group` = `"sw_version"`
 	- `git_branch` (string)
 	- `git_commit_id` (string)
-	- `git_release` (string) release name +additional commits e.g. "2.0.0-master_20170202 +403" 
+	- `git_release` (string) release name +additional commits e.g. "2.0.0-master_20170202 +403"
 	- `git_commit_dts` (string) commit timestamp in an ordering format. e.g. "201908111200"
-	- `node_verion_major` (number)
-	- `node_verion_minor` (number)
-	- `node_verion_revision` (number)
+	- `node_version_major` (number)
+	- `node_version_minor` (number)
+	- `node_version_revision` (number)
+
 - for `group` = `"build_config"`
 	- `ssl` (boolean)
 	- `lfs_size` (number) as defined at build time
@@ -341,11 +325,7 @@ print(node.info("sw_version").git_release)
 
 ## node.input()
 
-Submits a string to the Lua interpreter. Similar to `pcall(loadstring(str))`, but without the single-line limitation.
-
-!!! attention
-
-    This function only has an effect when invoked from a callback. Using it directly on the console **does not work**.
+Submits a string to the Lua interpreter. Similar to `pcall(loadstring(str))`, but without the single-line limitation.  Note that the Line interpreter only actions complete Lua chunks.  A Lue Lua chunk must comprise one or more complete `'\n'` terminaed lines that form a complete compilation unit.
 
 #### Syntax
 `node.input(str)`
@@ -360,56 +340,88 @@ Submits a string to the Lua interpreter. Similar to `pcall(loadstring(str))`, bu
 ```lua
 sk:on("receive", function(conn, payload) node.input(payload) end)
 ```
+See the `telnet/telnet.lua` in `lua_examples` for a more comprehensive example.
 
 #### See also
 [`node.output()`](#nodeoutput)
 
-## node.output()
 
-Redirects the Lua interpreter output to a callback function. Optionally also prints it to the serial console.
+## node.LFS
 
-!!! caution
+Sub-table containing the API for [Lua Flash Store](../lfs.md)(**LFS**) access.  Programmers might prefer to map this to a global or local variable for convenience for example:
+```lua
+local LFS = node.LFS
+```
+This table contains the following methods and properties:
 
-    Do **not** attempt to `print()` or otherwise induce the Lua interpreter to produce output from within the callback function. Doing so results in infinite recursion, and leads to a watchdog-triggered restart.
+Property/Method | Description
+-------|---------
+`config` | A synonym for [`node.info('lfs')`](#nodeinfo).  Returns the properties `lfs_base`, `lfs_mapped`, `lfs_size`, `lfs_used`.
+`get()` | See [node.LFS.get()](#nodelfsget).
+`list()` | See [node.LFS.list()](#nodelfslist).
+`reload()` |See [node.LFS.reload()](#nodelfsreload).
+`time` | Returns the Unix timestamp at time of image creation.
+
+
+## node.LFS.get() 
+
+Returns the function reference for a function in LFS.
+
+Note that unused `node.LFS` properties map onto the equialent `get()` call so for example: `node.LFS.mySub1` is a synonym for `node.LFS.get('mySub1')`.
 
 #### Syntax
-`node.output(function(str), serial_debug)`
+`node.LFS.get(modulename)`
 
 #### Parameters
-  - `output_fn(str)` a function accept every output as str, and can send the output to a socket (or maybe a file).
+`modulename`  The name of the module to be loaded.
+
+#### Returns
+-  If the LFS is loaded and the `modulename` is a string that is the name of a valid module in the LFS, then the function is returned in the same way the `load()` and the other Lua load functions do
+-  Otherwise `nil` is returned.
+
+
+## node.LFS.list() 
+
+List the modules in LFS.
+
+
+#### Returns
+-  If no LFS image IS LOADED then `nil` is returned.
+-  Otherwise an sorted array of the name of modules in LFS is returned.
+
+## node.LFS.reload()
+
+Reload LFS with the flash image provided. Flash images can be generated on the host machine using the `luac.cross`command.
+
+#### Syntax
+`node.LFS.reload(imageName)`
+
+#### Parameters
+`imageName` The name of a image file in the filesystem to be loaded into the LFS.
+
+#### Returns
+-  In the case when the `imagename` is a valid LFS image, this is expanded and loaded into flash, and the ESP is then immediately rebooted, _so control is not returned to the calling Lua application_ in the case of a successful reload.
+-  The reload process internally makes multiple passes through the LFS image file. The first pass validates the file and header formats and detects many errors.  If any is detected then an error string is returned.
+
+
+## node.output()
+
+Redirects the Lua interpreter to a `stdout` pipe when a CB function is specified (See  `pipe` module) and resets output to normal otherwise. Optionally also prints to the serial console.
+
+#### Syntax
+`node.output(function(pipe), serial_debug)`
+
+#### Parameters
+  - `output_fn(pipe)` a function accept every output as str, and can send the output to a socket (or maybe a file). Note that this function must conform to the fules for a pipe reader callback.
   - `serial_debug` 1 output also show in serial. 0: no serial output.
 
 #### Returns
 `nil`
 
 #### Example
-```lua
-function tonet(str)
-  sk:send(str)
-end
-node.output(tonet, 1)  -- serial also get the Lua output.
-```
 
-```lua
--- a simple telnet server
-s=net.createServer(net.TCP)
-s:listen(2323,function(c)
-   con_std = c
-   function s_output(str)
-      if(con_std~=nil)
-         then con_std:send(str)
-      end
-   end
-   node.output(s_output, 0)   -- re-direct output to function s_ouput.
-   c:on("receive",function(c,l)
-      node.input(l)           -- works like pcall(loadstring(l)) but support multiple separate line
-   end)
-   c:on("disconnection",function(c)
-      con_std = nil
-      node.output(nil)        -- un-regist the redirect output function, output goes to serial
-   end)
-end)
-```
+See the `telnet/telnet.lua` in `lua_examples` for a more comprehensive example of its use.
+
 #### See also
 [`node.input()`](#nodeinput)
 
@@ -449,6 +461,7 @@ none
 node.restore()
 node.restart() -- ensure the restored settings take effect
 ```
+
 
 ## node.setcpufreq()
 
@@ -566,6 +579,105 @@ Put NodeMCU in light sleep mode to reduce current consumption.
 - [`wifi.suspend()`](wifi.md#wifisuspend)
 - [`wifi.resume()`](wifi.md#wifiresume)
 - [`node.dsleep()`](#nodedsleep)
+
+## node.startupcommand()
+
+Overrides the default startup action on processor restart, preplacing the executing `init.lua` if it exists. This is now deprecated in favor of `node.startup({command="the command"})`.
+
+#### Syntax
+`node.startupcommand(string)`
+
+#### Parameters
+
+- `string` prefixed with either
+	- `@`, the remaining string is a filename to be executed.
+	- `=`, the remaining string is Lua chunk to be compiled and executed.
+
+####  Returns
+ 	`status` this is `false` if write to the Reboot Config Record fails.  Note that no attempt is made to	parse or validate the string. If the command is invalid or the file missing then this will be reported on the next restart.
+
+#### Example
+```lua
+node.startupcommand("@myappstart.lc")  -- Execute the compiled file myappstart.lc on startup
+```
+
+```lua
+-- Execute the LFS routine init() in preference to init.lua
+node.startupcommand("=if LFS.init then LFS.init() else dofile('init.lua') end")
+```
+
+
+## node.startupcounts()
+
+Query the performance of system startup.
+
+!!! Important
+
+    This function is only available if the firmware is built with `PLATFORM_STARTUP_COUNT` defined. This would normally be done by uncommenting the `#define PLATFORM_STARTUP_COUNT` line in `app/include/user_config.h`.
+
+#### Syntax
+`node.startupcounts([marker])`
+
+#### Parameters
+
+- `marker` If present, this will add another entry into the startup counts
+
+####  Returns
+An array of tables which indicate how many CPU cycles had been consumed at each step of platform boot.
+
+#### Example
+```lua
+=sjson.encode(node.startupcounts()) 
+```
+
+This might generate the output (formatted for readability):
+
+```
+[
+ {"ccount":3774328,"name":"user_pre_init","line":124},
+ {"ccount":3842297,"name":"user_pre_init","line":180},
+ {"ccount":9849869,"name":"user_init","line":327},
+ {"ccount":10008843,"name":"nodemcu_init","line":293},
+ {"ccount":10295779,"name":"pmain","line":234},
+ {"ccount":11378766,"name":"pmain","line":256},
+ {"ccount":11565912,"name":"pmain","line":260},
+ {"ccount":12158242,"name":"node_startup_counts","line":1},
+ {"ccount":12425790,"name":"myspiffs_mount","line":126},
+ {"ccount":12741862,"name":"myspiffs_mount","line":148},
+ {"ccount":13983567,"name":"pmain","line":265}
+]
+```
+
+The crucial entry is the one for `node_startup_counts` which is when the application had started running. This was on a Wemos D1 Mini with flash running at 80MHz. The startup options were all turned on. 
+Note that the clock speed changes in `user_pre_init` to 160MHz. The total time was (approximately): `3.8 / 80 + (12 - 3.8) / 160 = 98ms`. With startup options of 0, the time is 166ms. These times may be slightly optimistic as the clock is only 52MHz for a time during boot.
+
+## node.startup()
+
+Get/set options that control the startup process. This interface will grow over time.
+
+#### Syntax
+`node.startup([{table}])`
+
+#### Parameters
+
+If the argument is omitted, then no change is made to the current set of startup options. If the argument is the empty table `{}` then all options are
+reset to their default values.
+
+- `table` one or more options:
+    - `banner` - set to true or false to indicate whether the startup banner should be displayed or not. (default: true)
+    - `frequency` - set to node.CPU80MHZ or node.CPU160MHZ to indicate the initial CPU speed. (default: node.CPU80MHZ)
+    - `delay_mount` - set to true or false to indicate whether the SPIFFS filesystem mount is delayed until it is first needed or not. (default: false)
+    - `command` - set to a string which is the initial command that is run. This is the same string as in the `node.startupcommand`.
+
+####  Returns
+`table` This is the complete set of options in the state that will take effect on the next boot. Note that the `command` key may be missing -- in which
+        case the default value will be used.
+
+#### Example
+```lua
+node.startup({banner=false, frequency=node.CPU160MHZ})  -- Prevent printing the banner and run at 160MHz
+```
+
 
 ## node.stripdebug()
 
@@ -725,4 +837,3 @@ priority is 2
 priority is 1
 priority is 0
 ```
-

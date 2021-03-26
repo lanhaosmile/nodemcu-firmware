@@ -7,7 +7,6 @@
 
 #define lstate_c
 #define LUA_CORE
-#define LUAC_CROSS_FILE
 
 #include "lua.h"
 
@@ -185,6 +184,7 @@ LUA_API lua_State *lua_newstate (lua_Alloc f, void *ud) {
   g->memlimit = 0;
   g->gcpause = LUAI_GCPAUSE;
   g->gcstepmul = LUAI_GCMUL;
+  g->stripdefault = LUAI_OPTIMIZE_DEBUG;
   g->gcdept = 0;
 #ifdef EGC_INITIAL_MODE
   g->egcmode = EGC_INITIAL_MODE;
@@ -197,13 +197,14 @@ LUA_API lua_State *lua_newstate (lua_Alloc f, void *ud) {
   g->memlimit = 0;
 #endif
 #ifndef LUA_CROSS_COMPILER
-  g->ROstrt.size = 0;
-  g->ROstrt.nuse = 0;
-  g->ROstrt.hash = NULL;
-  g->ROpvmain    = NULL;
-  g->LFSsize     = 0;
+  g->ROstrt.size    = 0;
+  g->ROstrt.nuse    = 0;
+  g->ROstrt.hash    = NULL;
+  g->ROpvmain       = NULL;
+  g->LFSsize        = 0;
+  g->error_reporter = 0;
 #endif
-  for (i=0; i<NUM_TAGS; i++) g->mt[i] = NULL;
+  for (i=0; i<LUA_NUMTAGS; i++) g->mt[i] = NULL;
   if (luaD_rawrunprotected(L, f_luaopen, NULL) != 0) {
     /* memory allocation error: free partial state */
     close_state(L);
@@ -229,9 +230,6 @@ lua_State *lua_open(void) {
   return lua_crtstate;
 }
 
-lua_State *lua_getstate(void) {
-  return lua_crtstate;
-}
 LUA_API void lua_close (lua_State *L) {
 #ifndef LUA_CROSS_COMPILER
   lua_sethook( L, NULL, 0, 0 );

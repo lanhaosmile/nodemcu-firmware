@@ -8,17 +8,14 @@
 
 #define lbaselib_c
 #define LUA_LIB
-#define LUAC_CROSS_FILE
 
 #include "lua.h"
+
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include "lauxlib.h"
 #include "lualib.h"
-#include "lrotable.h"
-
-
 
 
 /*
@@ -27,6 +24,10 @@
 ** model but changing `fputs' to put the strings at a proper place
 ** (a console window or a log file, for instance).
 */
+#ifdef LUA_CROSS_COMPILER
+#undef puts
+#define puts(s) printf("%s",s)
+#endif
 static int luaB_print (lua_State *L) {
   int n = lua_gettop(L);  /* number of arguments */
   int i;
@@ -40,20 +41,11 @@ static int luaB_print (lua_State *L) {
     if (s == NULL)
       return luaL_error(L, LUA_QL("tostring") " must return a string to "
                            LUA_QL("print"));
-#if defined(LUA_USE_STDIO)
-    if (i>1) fputs("\t", c_stdout);
-    fputs(s, c_stdout);
-#else
-    if (i>1)  luai_writestring("\t", 1);
-    luai_writestring(s, strlen(s));
-#endif
+    if (i>1) puts("\t");
+    puts(s);
     lua_pop(L, 1);  /* pop result */
   }
-#if defined(LUA_USE_STDIO)
-  fputs("\n", c_stdout);
-#else
-  luai_writeline();
-#endif
+  puts("\n");
   return 0;
 }
 
@@ -112,7 +104,7 @@ static int luaB_getmetatable (lua_State *L) {
 static int luaB_setmetatable (lua_State *L) {
   int t = lua_type(L, 2);
   luaL_checktype(L, 1, LUA_TTABLE);
-  luaL_argcheck(L, t == LUA_TNIL || t == LUA_TTABLE || t == LUA_TROTABLE, 2,
+  luaL_argcheck(L, t == LUA_TNIL || t == LUA_TTABLE, 2,
                     "nil or table expected");
   if (luaL_getmetafield(L, 1, "__metatable"))
     luaL_error(L, "cannot change a protected metatable");
@@ -175,7 +167,7 @@ static int luaB_rawequal (lua_State *L) {
 
 
 static int luaB_rawget (lua_State *L) {
-  luaL_checkanytable(L, 1);
+  luaL_checktable(L, 1);
   luaL_checkany(L, 2);
   lua_settop(L, 2);
   lua_rawget(L, 1);
@@ -183,7 +175,7 @@ static int luaB_rawget (lua_State *L) {
 }
 
 static int luaB_rawset (lua_State *L) {
-  luaL_checktype(L, 1, LUA_TTABLE);
+  luaL_checktable(L, 1);
   luaL_checkany(L, 2);
   luaL_checkany(L, 3);
   lua_settop(L, 3);
@@ -233,7 +225,7 @@ static int luaB_type (lua_State *L) {
 
 
 static int luaB_next (lua_State *L) {
-  luaL_checkanytable(L, 1);
+  luaL_checktable(L, 1);
   lua_settop(L, 2);  /* create a 2nd argument if there isn't one */
   if (lua_next(L, 1))
     return 2;
@@ -245,7 +237,7 @@ static int luaB_next (lua_State *L) {
 
 
 static int luaB_pairs (lua_State *L) {
-  luaL_checkanytable(L, 1);
+  luaL_checktable(L, 1);
   lua_pushvalue(L, lua_upvalueindex(1));  /* return generator, */
   lua_pushvalue(L, 1);  /* state, */
   lua_pushnil(L);  /* and initial value */
@@ -255,7 +247,7 @@ static int luaB_pairs (lua_State *L) {
 
 static int ipairsaux (lua_State *L) {
   int i = luaL_checkint(L, 2);
-  luaL_checkanytable(L, 1);
+  luaL_checktable(L, 1);
   i++;  /* next value */
   lua_pushinteger(L, i);
   lua_rawgeti(L, 1, i);
@@ -264,7 +256,7 @@ static int ipairsaux (lua_State *L) {
 
 
 static int luaB_ipairs (lua_State *L) {
-  luaL_checkanytable(L, 1);
+  luaL_checktable(L, 1);
   lua_pushvalue(L, lua_upvalueindex(1));  /* return generator, */
   lua_pushvalue(L, 1);  /* state, */
   lua_pushinteger(L, 0);  /* and initial value */
@@ -296,7 +288,7 @@ static int luaB_loadfile (lua_State *L) {
 #ifdef LUA_CROSS_COMPILER
   return load_aux(L, luaL_loadfile(L, fname));
 #else
-  return load_aux(L, luaL_loadfsfile(L, fname));
+  return load_aux(L, luaL_loadfile(L, fname));
 #endif
 }
 
@@ -343,7 +335,7 @@ static int luaB_dofile (lua_State *L) {
 #ifdef LUA_CROSS_COMPILER
   if (luaL_loadfile(L, fname) != 0) lua_error(L);
 #else
-  if (luaL_loadfsfile(L, fname) != 0) lua_error(L);
+  if (luaL_loadfile(L, fname) != 0) lua_error(L);
 #endif
   lua_call(L, 0, LUA_MULTRET);
   return lua_gettop(L) - n;
@@ -462,29 +454,24 @@ static int luaB_newproxy (lua_State *L) {
   return 1;
 }
 
-#include "lrotable.h"
-
-LROT_EXTERN(lua_rotable_base);
 
 /*
- * Separate ROTables are used for the base functions and library ROTables, with
- * the base functions ROTable declared below.  The library ROTable is chained
- * from this using its __index meta-method.
- *
- * ESP builds use specific linker directives to marshal all the ROTable entries
- * for the library modules into a single ROTable in the PSECT ".lua_rotable".
- * This is not practical on Posix builds using a standard GNU link, so the
- * equivalent ROTable for the core libraries defined in linit.c for the cross-
- * compiler build.
- */
-
-LROT_EXTERN(lua_rotables);
-
-LROT_PUBLIC_BEGIN(base_func_meta)
-  LROT_TABENTRY( __index, lua_rotables )
-LROT_END(base_func, base_func_meta, LROT_MASK_INDEX)
-
-LROT_PUBLIC_BEGIN(base_func)
+** ESP builds use specific linker directives to marshal all the ROTable entries
+** for the library modules including the base library into an entry vector in
+** the PSECT ".lua_rotable" including the base library entries; this is bound
+** into a ROTable in linit.c  which then hooked into the __index metaentry for
+** _G so that base library and ROM tables are directly resolved through _G.
+**
+** The host-based luac.cross builds which must use a standard GNU link or
+** MSVC so this linker-specfic assembly approach can't be used. In this case
+** luaopen_base returns a base_func ROTable so a two cascade resolution. See
+** description in init.c for further details.
+*/
+#ifdef LUA_CROSS_COMPILER
+LROT_BEGIN(base_func, NULL, 0)
+#else
+LROT_ENTRIES_IN_SECTION(base_func, rotable)
+#endif
   LROT_FUNCENTRY(assert,         luaB_assert)
   LROT_FUNCENTRY(collectgarbage, luaB_collectgarbage)
   LROT_FUNCENTRY(dofile,         luaB_dofile)
@@ -509,13 +496,11 @@ LROT_PUBLIC_BEGIN(base_func)
   LROT_FUNCENTRY(type,           luaB_type)
   LROT_FUNCENTRY(unpack,         luaB_unpack)
   LROT_FUNCENTRY(xpcall,         luaB_xpcall)
-  LROT_TABENTRY(__metatable,     base_func_meta)
-LROT_END(base_func, base_func_meta, LROT_MASK_INDEX)
-
-LROT_BEGIN(G_meta)
-  LROT_TABENTRY( __index, base_func )
-LROT_END(G_meta, NULL, 0)
-
+#ifdef LUA_CROSS_COMPILER
+LROT_END(base_func, NULL, 0)
+#else
+LROT_BREAK(base_func)
+#endif
 
 /*
 ** {======================================================
@@ -645,14 +630,14 @@ static int luaB_corunning (lua_State *L) {
   return 1;
 }
 
-LROT_PUBLIC_BEGIN(co_funcs)
+LROT_BEGIN(co_funcs, NULL, 0)
   LROT_FUNCENTRY( create, luaB_cocreate )
   LROT_FUNCENTRY( resume, luaB_coresume )
   LROT_FUNCENTRY( running, luaB_corunning )
   LROT_FUNCENTRY( status, luaB_costatus )
   LROT_FUNCENTRY( wrap, luaB_cowrap )
   LROT_FUNCENTRY( yield, luaB_yield )
-LROT_END (co_funcs, NULL, 0)
+LROT_END(co_funcs, NULL, 0)
 
 /* }====================================================== */
 
@@ -661,19 +646,13 @@ static void auxopen (lua_State *L, const char *name,
                      lua_CFunction f, lua_CFunction u) {
   lua_pushcfunction(L, u);
   lua_pushcclosure(L, f, 1);
-  lua_setfield(L, -2, name);
+  lua_setglobal(L, name);
 }
 
-static void base_open (lua_State *L) {
-  /* set global _G */
+extern LROT_TABLE(rotables);
+LUALIB_API int luaopen_base (lua_State *L) {
   lua_pushvalue(L, LUA_GLOBALSINDEX);
-  lua_setglobal(L, "_G");
-
-  /* open lib into global table */
-  luaL_register_light(L, "_G", &((luaL_Reg) {0}));
-  lua_pushrotable(L, LROT_TABLEREF(G_meta));
-  lua_setmetatable(L, LUA_GLOBALSINDEX);
-
+  lua_settable(L, LUA_GLOBALSINDEX);  /* set global _G */
   lua_pushliteral(L, LUA_VERSION);
   lua_setglobal(L, "_VERSION");  /* set global _VERSION */
   /* `ipairs' and `pairs' need auxliliary functions as upvalues */
@@ -681,16 +660,15 @@ static void base_open (lua_State *L) {
   auxopen(L, "pairs", luaB_pairs, luaB_next);
   /* `newproxy' needs a weaktable as upvalue */
   lua_createtable(L, 0, 1);  /* new table `w' */
-  lua_pushvalue(L, -1);  /* `w' will be its own metatable */
-  lua_setmetatable(L, -2);
   lua_pushliteral(L, "kv");
   lua_setfield(L, -2, "__mode");  /* metatable(w).__mode = "kv" */
-  lua_pushcclosure(L, luaB_newproxy, 1);
+  lua_pushvalue(L, -1);  /* `w' will be its own metatable */
+  lua_setmetatable(L, -2);
+  lua_pushcclosure(L, luaB_newproxy, 1);  /* Upval is table w */
   lua_setglobal(L, "newproxy");  /* set global `newproxy' */
-}
-
-
-LUALIB_API int luaopen_base (lua_State *L) {
-  base_open(L);
-  return 1;
+  lua_pushrotable(L, LROT_TABLEREF(rotables));
+  lua_setglobal(L, "__index");
+  lua_pushvalue(L, LUA_GLOBALSINDEX);  /* _G is its own metatable */
+  lua_setmetatable(L, LUA_GLOBALSINDEX);
+  return 0;
 }

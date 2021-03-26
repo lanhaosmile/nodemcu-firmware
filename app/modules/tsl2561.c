@@ -51,7 +51,7 @@ static int ICACHE_FLASH_ATTR tsl2561_init(lua_State* L) {
 			tsl2561SetPackage(package);
 		}
 	}
-	lua_pushnumber(L, error);
+	lua_pushinteger(L, error);
 	return 1;
 }
 /* Sets the integration time and gain settings of the device
@@ -71,7 +71,7 @@ static int ICACHE_FLASH_ATTR tsl2561_lua_settiming(lua_State* L) {
 		return luaL_error(L, "Invalid argument: gain");
 	}
 
-	lua_pushnumber(L, tsl2561SetTiming(integration, gain));
+	lua_pushinteger(L, tsl2561SetTiming(integration, gain));
 	return 1;
 }
 /* Reads sensor values from device and return calculated lux
@@ -80,11 +80,11 @@ static int ICACHE_FLASH_ATTR tsl2561_lua_settiming(lua_State* L) {
 static int ICACHE_FLASH_ATTR tsl2561_lua_calclux(lua_State* L) {
 	uint8_t error = tsl2561GetLuminosity(&ch0, &ch1);
 	if (error) {
-		lua_pushnumber(L, 0);
-		lua_pushnumber(L, error);
+		lua_pushinteger(L, 0);
+		lua_pushinteger(L, error);
 	} else {
-		lua_pushnumber(L, tsl2561CalculateLux(ch0, ch1));
-		lua_pushnumber(L, error);
+		lua_pushinteger(L, tsl2561CalculateLux(ch0, ch1));
+		lua_pushinteger(L, error);
 	}
 	return 2;
 }
@@ -93,15 +93,15 @@ static int ICACHE_FLASH_ATTR tsl2561_lua_calclux(lua_State* L) {
  */
 static int ICACHE_FLASH_ATTR tsl2561_lua_getchannels(lua_State* L) {
 	uint8_t error = tsl2561GetLuminosity(&ch0, &ch1);
-	lua_pushnumber(L, ch0);
-	lua_pushnumber(L, ch1);
-	lua_pushnumber(L, error);
+	lua_pushinteger(L, ch0);
+	lua_pushinteger(L, ch1);
+	lua_pushinteger(L, error);
 
 	return 3;
 }
 
 // Module function map
-LROT_BEGIN(tsl2561)
+LROT_BEGIN(tsl2561, NULL, 0)
   LROT_FUNCENTRY( settiming, tsl2561_lua_settiming )
   LROT_FUNCENTRY( getlux, tsl2561_lua_calclux )
   LROT_FUNCENTRY( getrawchannels, tsl2561_lua_getchannels )
@@ -121,7 +121,7 @@ LROT_BEGIN(tsl2561)
   LROT_NUMENTRY( ADDRESS_GND, TSL2561_ADDRESS_GND )
   LROT_NUMENTRY( ADDRESS_FLOAT, TSL2561_ADDRESS_FLOAT )
   LROT_NUMENTRY( ADDRESS_VDD, TSL2561_ADDRESS_VDD )
-LROT_END( tsl2561, NULL, 0 )
+LROT_END(tsl2561, NULL, 0)
 
 
 NODEMCU_MODULE(TSL2561, "tsl2561", tsl2561, NULL);

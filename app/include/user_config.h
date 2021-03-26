@@ -22,21 +22,54 @@
 //#define BIT_RATE_AUTOBAUD
 
 
-// Three separate build variants are now supported. The main difference is in the
-// processing of numeric data types.  If LUA_NUMBER_INTEGRAL is defined, then
-// all numeric calculations are done in integer, with divide being an integer
-// operations, and decimal fraction constants are illegal.  Otherwise all
-// numeric operations use floating point, though they are exact for integer
-// expressions < 2^53.
+// At start-up firmware details like:
+//
+// NodeMCU 3.0.1.0
+//         branch:
+//         commit:
+//         release:
+//         release DTS:
+//         SSL: false
+//         build type: integer
+//         LFS: 0x0
+//         modules: file,gpio,net,node,rtctime,sntp,tmr,uart,wifi
+//  build 2020-01-27 17:39 powered by Lua 5.1.4 on SDK 3.0.2(824dc80)
+//
+// will be printed to serial console.  While it's mandatory for bug reports
+// and good for development, it may be unwanted for non-interactive serial
+// devices.
 
-// The main advantage of INTEGRAL builds is that the basic internal storage unit,
-// the TValue, is 8 bytes long.  We have now reduced the size of FP TValues to
-// 12 bytes rather than the previous 16 as this gives a material RAM saving with
-// no performance loss.  However, you can define LUA_DWORD_ALIGNED_TVALUES and
-// this will force 16 byte TValues on FP builds.
+//#define DISABLE_STARTUP_BANNER
+
+
+// When using Lua 5.1, two different builds are now supported.
+// The main difference is in the // processing of numeric data types.
+// If LUA_NUMBER_INTEGRAL is defined, then
+// all numeric calculations are done in integer, with divide being an integer
+// operation, and decimal fraction constants are illegal.
+// Otherwise all floating point operations use doubles. All integer values
+// can be represented exactly in floating point.
 
 //#define LUA_NUMBER_INTEGRAL
-//#define LUA_DWORD_ALIGNED_TVALUES
+
+// When using Lua 5.3, two different builds are now supported. 
+// The main difference is in the processing of numeric data types.
+// If LUA_NUMBER_64BITS is defined, then doubles are used to hold floating
+// point numbers. Integers under 2^53 are representable exactly in doubles.
+// Integers are held in 64-bit variables. 
+// Otherwise all floating point operations use floats. Only integers under 2^24
+// can be represented exactly in floating point. Integers are represented in 32 bit variables.
+// Note that Lua 5.3 also supports Integers natively, but you have to be careful 
+// not to promote an integer to a floating point variable if you are using a float build
+// as you can lose precision.
+
+//#define LUA_NUMBER_64BITS
+
+// The main advantage of INTEGRAL builds and non 64BITS builds is that the basic internal
+// storage unit, the TValue, is 8 bytes long.  For 64BITS builds, we have now reduced
+// the size of FP TValues to 12 bytes rather than the previous 16 as this gives a
+// material RAM saving with no performance loss.
+//
 
 
 // The Lua Flash Store (LFS) allows you to store Lua code in Flash memory and
@@ -59,7 +92,7 @@
 
 
 // NodeMCU supports two file systems: SPIFFS and FATFS, the first is available
-// on all ESP8266 modules.  The latter requires extra H/W so is less common.
+// on all ESP8266 modules.  The latter requires extra H/W so it is less common.
 // If you use SPIFFS then there are a number of options which impact the
 // RAM overhead and performance of the file system.
 
@@ -87,14 +120,13 @@
 
 // The HTTPS stack requires client SSL to be enabled.  The SSL buffer size is
 // used only for espconn-layer secure connections, and is ignored otherwise.
-// Some HTTPS  applications require a larger buffer size to work.  See
+// Some HTTPS applications require a larger buffer size to work.  See
 // https://github.com/nodemcu/nodemcu-firmware/issues/1457 for details.
 // The SHA2 and MD2 libraries are also optionally used by the crypto functions.
 // The SHA1 and MD5 function are implemented in the ROM BIOS. The MD2 and SHA2
 // are by firmware code, and can be enabled if you need this functionality.
 
 //#define CLIENT_SSL_ENABLE
-//#define MD2_ENABLE
 #define SHA2_ENABLE
 #define SSL_BUFFER_SIZE 4096
 #define SSL_MAX_FRAGMENT_LENGTH_CODE	MBEDTLS_SSL_MAX_FRAG_LEN_4096
@@ -102,8 +134,8 @@
 
 // GPIO_INTERRUPT_ENABLE needs to be defined if your application uses the
 // gpio.trig() or related GPIO interrupt service routine code.  Likewise the
-// GPIO interrupt hook is requited for a few modules such as rotary.  If you
-// don't require this functionality, then commenting out these options out
+// GPIO interrupt hook is required for a few modules such as rotary.  If you
+// don't require this functionality, then commenting out these options
 // will remove any associated runtime overhead.
 
 #define GPIO_INTERRUPT_ENABLE
@@ -117,6 +149,9 @@
 //#define TIMER_SUSPEND_ENABLE
 //#define PMSLEEP_ENABLE
 
+// The net module optionally offers net info functionnality. Uncomment the following
+// to enable the functionnality.
+#define NET_PING_ENABLE
 
 // The WiFi module optionally offers an enhanced level of WiFi connection
 // management, using internal timer callbacks.  Whilst many Lua developers
@@ -134,10 +169,6 @@
 //  Enable creation on the wifi.eventmon.reason table
 #define WIFI_EVENT_MONITOR_DISCONNECT_REASON_LIST_ENABLE
 
-//  Enable use of the WiFi.monitor sub-module
-//#define LUA_USE_MODULES_WIFI_MONITOR
-
-
 // Whilst the DNS client details can be configured through the WiFi API,
 // the defaults can be exposed temporarily during start-up.  The following
 // WIFI_STA options allow you to configure this in the firmware.  If the
@@ -147,7 +178,9 @@
 // alphanumeric characters. If you are imaging multiple modules with this
 // firmware then you must also define WIFI_STA_HOSTNAME_APPEND_MAC to
 // append the last 3 octets of the MAC address.  Note that the total
-// Hostname MUST be 32 chars or less.
+// Hostname MUST be 32 chars or less. If the resulting hostname is 
+// invalid, then it will not be used, and a message will be printed
+// during boot.
 
 //#define WIFI_STA_HOSTNAME "NodeMCU"
 //#define WIFI_STA_HOSTNAME_APPEND_MAC
@@ -156,7 +189,7 @@
 // If you use the enduser_setup module, then you can also set the default
 // SSID when this module is running in AP mode.
 
-#define ENDUSER_SETUP_AP_SSID "SetupGadget"
+#define ENDUSER_SETUP_AP_SSID "NodeMCU"
 
 
 // I2C software driver partially supports use of GPIO16 (D0) pin for SCL line.
@@ -175,7 +208,7 @@
 #define I2C_MASTER_OLD_VERSION
 
 
-// The following sections are only relevent for those developers who are
+// The following sections are only relevant for those developers who are
 // developing modules or core Lua changes and configure how extra diagnostics
 // are enabled in the firmware. These should only be configured if you are
 // building your own custom firmware and have full access to the firmware
@@ -221,27 +254,37 @@
 #  define LUA_FLASH_STORE                 0x0
 #endif
 
-#define SPIFFS_FIXED_LOCATION             0x0
+#ifndef SPIFFS_FIXED_LOCATION
+  #define SPIFFS_FIXED_LOCATION           0x0
+  // You'll rarely need to customize this, because nowadays
+  // it's usually overruled by the partition table anyway.
+#endif
 #ifndef SPIFFS_MAX_FILESYSTEM_SIZE
 #  define SPIFFS_MAX_FILESYSTEM_SIZE      0xFFFFFFFF
 #endif
 //#define SPIFFS_SIZE_1M_BOUNDARY
 
+// The following define enables recording of the number of CPU cycles at certain
+// points in the startup process. It can be used to see where the time is being
+// consumed. It enables a nice node.startupcounts() function to get the results.
+//#define PLATFORM_STARTUP_COUNT
+
 #define LUA_TASK_PRIO             USER_TASK_PRIO_0
 #define LUA_PROCESS_LINE_SIG      2
-#define LUA_OPTIMIZE_DEBUG        2
+// LUAI_OPTIMIZE_DEBUG 0 = Keep all debug; 1 = keep line number info; 2 = remove all debug
+#define LUAI_OPTIMIZE_DEBUG       1
 #define READLINE_INTERVAL        80
 #define STRBUF_DEFAULT_INCREMENT  3
 #define LUA_USE_BUILTIN_DEBUG_MINIMAL // for debug.getregistry() and debug.traceback()
 
-#ifdef DEVELOPMENT_TOOLS
-#if defined(LUA_CROSS_COMPILER) || !defined(DEVELOPMENT_USE_GDB)
+#if defined(DEVELOPMENT_TOOLS) && defined(DEVELOPMENT_USE_GDB)
+extern void LUA_DEBUG_HOOK (void);
+#define lua_assert(x)    ((x) ? (void) 0 : LUA_DEBUG_HOOK ())
+#elif defined(DEVELOPMENT_TOOLS) && defined(LUA_CROSS_COMPILER)
 extern void luaL_assertfail(const char *file, int line, const char *message);
 #define lua_assert(x)    ((x) ? (void) 0 : luaL_assertfail(__FILE__, __LINE__, #x))
 #else
-extern void luaL_dbgbreak(void);
-#define lua_assert(x)    ((x) ? (void) 0 : luaL_dbgbreak())
-#endif
+#define lua_assert(x)    ((void) (x))
 #endif
 
 #if !defined(LUA_NUMBER_INTEGRAL) && !defined (LUA_DWORD_ALIGNED_TVALUES)
@@ -263,14 +306,14 @@ extern void dbg_printf(const char *fmt, ...);
 #ifdef NODE_DEBUG
 #define NODE_DBG dbg_printf
 #else
-#define NODE_DBG
+#define NODE_DBG( ... )
 #endif	/* NODE_DEBUG */
 
 #define NODE_ERROR
 #ifdef NODE_ERROR
 #define NODE_ERR dbg_printf
 #else
-#define NODE_ERR
+#define NODE_ERR( ... )
 #endif	/* NODE_ERROR */
 
 // #define GPIO_SAFE_NO_INTR_ENABLE

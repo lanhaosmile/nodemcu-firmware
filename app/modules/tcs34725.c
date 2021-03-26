@@ -22,6 +22,7 @@
 #include "module.h"
 #include "lauxlib.h"
 #include "platform.h"
+#include "user_interface.h"
 #include <math.h>
 
 // #define TCS34725_ADDRESS					(0x29<<1)
@@ -99,13 +100,13 @@ typedef enum
 }
 tcs34725Gain_t;
 static void temp_setup_debug(int line, const char *str);
-uint8_t tcs34725Setup(lua_State* L);
-uint8_t tcs34725Enable(lua_State* L);
-uint8_t tcs34725Disable(lua_State* L);
-uint8_t tcs34725GetRawData(lua_State* L);
-uint8_t tcs34725LuaSetIntegrationTime(lua_State* L);
+int tcs34725Setup(lua_State* L);
+int tcs34725Enable(lua_State* L);
+int tcs34725Disable(lua_State* L);
+int tcs34725GetRawData(lua_State* L);
+int tcs34725LuaSetIntegrationTime(lua_State* L);
 uint8_t tcs34725SetIntegrationTime(tcs34725IntegrationTime_t it, lua_State* L);
-uint8_t tcs34725LuaSetGain(lua_State* L);
+int tcs34725LuaSetGain(lua_State* L);
 uint8_t tcs34725SetGain(tcs34725Gain_t gain, lua_State* L);
 
 static bool							_tcs34725Initialised = false;
@@ -187,7 +188,7 @@ uint8_t tcs34725EnableDone()
 	lua_rawgeti(L, LUA_REGISTRYINDEX, cb_tcs_en); // Get the callback to call
 	luaL_unref(L, LUA_REGISTRYINDEX, cb_tcs_en); // Unregister the callback to avoid leak
 	cb_tcs_en = LUA_NOREF;
-	lua_call(L, 0, 0);
+	luaL_pcallx(L, 0, 0);
 
 	return 0;
 }
@@ -197,11 +198,11 @@ uint8_t tcs34725EnableDone()
 		@brief	Enables the device
 */
 /**************************************************************************/
-uint8_t tcs34725Enable(lua_State* L)
+int tcs34725Enable(lua_State* L)
 {
 	dbg_printf("Enable begun\n");
 
-	if (lua_type(L, 1) == LUA_TFUNCTION || lua_type(L, 1) == LUA_TLIGHTFUNCTION) {
+	if (lua_isfunction(L, 1)) {
 		if (cb_tcs_en != LUA_NOREF) {
 			luaL_unref(L, LUA_REGISTRYINDEX, cb_tcs_en);
 		}
@@ -225,7 +226,7 @@ uint8_t tcs34725Enable(lua_State* L)
 		@brief	Disables the device (putting it in lower power sleep mode)
 */
 /**************************************************************************/
-uint8_t tcs34725Disable(lua_State* L)
+int tcs34725Disable(lua_State* L)
 {
 	/* Turn the device off to save power */
 	uint8_t reg = 0;
@@ -240,7 +241,7 @@ uint8_t tcs34725Disable(lua_State* L)
 		@brief	Initialises the I2C block
 */
 /**************************************************************************/
-uint8_t tcs34725Setup(lua_State* L)
+int tcs34725Setup(lua_State* L)
 {
 	uint8_t id = 0;
 
@@ -260,7 +261,7 @@ uint8_t tcs34725Setup(lua_State* L)
 		@brief	Sets the integration time to the specified value
 */
 /**************************************************************************/
-uint8_t tcs34725LuaSetIntegrationTime(lua_State* L)
+int tcs34725LuaSetIntegrationTime(lua_State* L)
 {
 	tcs34725IntegrationTime_t it = luaL_checkinteger(L, 1);
 	return tcs34725SetIntegrationTime(it,L);
@@ -289,7 +290,7 @@ uint8_t tcs34725SetIntegrationTime(tcs34725IntegrationTime_t it, lua_State* L)
 		@brief	Sets gain to the specified value from Lua
 */
 /**************************************************************************/
-uint8_t tcs34725LuaSetGain(lua_State* L)
+int tcs34725LuaSetGain(lua_State* L)
 {
 	tcs34725Gain_t gain = luaL_checkinteger(L, 1);
 	return tcs34725SetGain(gain,L);
@@ -318,7 +319,7 @@ uint8_t tcs34725SetGain(tcs34725Gain_t gain, lua_State* L)
 		@brief	Reads the raw red, green, blue and clear channel values
 */
 /**************************************************************************/
-uint8_t tcs34725GetRawData(lua_State* L)
+int tcs34725GetRawData(lua_State* L)
 {
 	uint16_t r;
 	uint16_t g;
@@ -342,14 +343,14 @@ uint8_t tcs34725GetRawData(lua_State* L)
 }
 
 
-LROT_BEGIN(tcs34725)
+LROT_BEGIN(tcs34725, NULL, 0)
   LROT_FUNCENTRY( setup, tcs34725Setup )
   LROT_FUNCENTRY( enable, tcs34725Enable )
   LROT_FUNCENTRY( disable, tcs34725Disable )
   LROT_FUNCENTRY( raw, tcs34725GetRawData )
   LROT_FUNCENTRY( setGain, tcs34725LuaSetGain )
   LROT_FUNCENTRY( setIntegrationTime, tcs34725LuaSetIntegrationTime )
-LROT_END( tcs34725, NULL, 0 )
+LROT_END(tcs34725, NULL, 0)
 
 
 NODEMCU_MODULE(TCS34725, "tcs34725", tcs34725, NULL);
